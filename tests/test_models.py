@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from tapeworm.models import (
+from src.models import (
     MarketStats,
     OrderBook,
     ScreenerStore,

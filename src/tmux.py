@@ -15,19 +15,19 @@ def build_tool_commands(assets: list[str], tools: list[str], hub_url: str) -> li
     if unknown_tools:
         raise ValueError(f"Unknown tool(s): {', '.join(unknown_tools)}")
 
-    commands = [f"{shlex.quote(sys.executable)} -m tapeworm hub"]
+    commands = [f"{shlex.quote(sys.executable)} -m src hub"]
     if "screener" in tools:
-        commands.append(f"{shlex.quote(sys.executable)} -m tapeworm tool screener --source hub --hub-url {shlex.quote(hub_url)}")
+        commands.append(f"{shlex.quote(sys.executable)} -m src tool screener --source hub --hub-url {shlex.quote(hub_url)}")
 
     for asset in [normalize_asset(asset) for asset in assets]:
         if "l2" in tools:
             commands.append(
-                f"{shlex.quote(sys.executable)} -m tapeworm tool l2 --asset {shlex.quote(asset)} "
+                f"{shlex.quote(sys.executable)} -m src tool l2 --asset {shlex.quote(asset)} "
                 f"--source hub --hub-url {shlex.quote(hub_url)}"
             )
         if "ts" in tools:
             commands.append(
-                f"{shlex.quote(sys.executable)} -m tapeworm tool ts --asset {shlex.quote(asset)} "
+                f"{shlex.quote(sys.executable)} -m src tool ts --asset {shlex.quote(asset)} "
                 f"--source hub --hub-url {shlex.quote(hub_url)}"
             )
     return commands

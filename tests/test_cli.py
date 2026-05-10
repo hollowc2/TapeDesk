@@ -1,6 +1,6 @@
-from tapeworm.app import normalize_asset
-from tapeworm.cli import build_parser
-from tapeworm.tmux import build_tool_commands
+from src.app import normalize_asset
+from src.cli import build_parser
+from src.tmux import build_tool_commands
 
 
 def test_normalize_asset_defaults_to_usd_pair():
@@ -19,7 +19,7 @@ def test_cli_parses_tool_subcommand():
 def test_tmux_commands_include_hub_and_selected_asset_tools():
     commands = build_tool_commands(["BTC", "ETH"], ["screener", "l2", "ts"], "ws://127.0.0.1:8765")
 
-    assert commands[0].endswith("-m tapeworm hub")
+    assert commands[0].endswith("-m src hub")
     assert any("tool screener" in command for command in commands)
     assert any("tool l2 --asset BTC-USD" in command for command in commands)
     assert any("tool ts --asset ETH-USD" in command for command in commands)

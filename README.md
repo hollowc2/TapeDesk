@@ -24,13 +24,13 @@ COINBASE_PASSPHRASE=...
 Run the combined app:
 
 ```bash
-venv/bin/python -m tapeworm
+venv/bin/python -m src
 ```
 
 Start the interactive orchestrator:
 
 ```bash
-venv/bin/python -m tapeworm orchestrator
+venv/bin/python -m src orchestrator
 ```
 
 The orchestrator asks for assets and tools, starts a local market-data hub, and opens a tmux layout.
@@ -38,21 +38,21 @@ The orchestrator asks for assets and tools, starts a local market-data hub, and 
 Run individual tools:
 
 ```bash
-venv/bin/python -m tapeworm tool screener
-venv/bin/python -m tapeworm tool l2 --asset BTC
-venv/bin/python -m tapeworm tool ts --asset ETH
+venv/bin/python -m src tool screener
+venv/bin/python -m src tool l2 --asset BTC
+venv/bin/python -m src tool ts --asset ETH
 ```
 
 Launch a tmux workspace directly:
 
 ```bash
-venv/bin/python -m tapeworm tmux launch --assets BTC,ETH --tools screener,l2,ts
+venv/bin/python -m src tmux launch --assets BTC,ETH --tools screener,l2,ts
 ```
 
 Run only the local websocket hub:
 
 ```bash
-venv/bin/python -m tapeworm hub
+venv/bin/python -m src hub
 ```
 
 Tool commands default to `--source auto`: they try the local hub first, then fall back to direct Coinbase feeds if no hub is available.
@@ -70,7 +70,7 @@ Assets can be passed as full Coinbase product IDs such as `BTC-USD` or as shorth
 Compile-check the package:
 
 ```bash
-venv/bin/python -m compileall tapeworm tests main.py screener.py
+venv/bin/python -m compileall src tests
 ```
 
 Run tests once `pytest` is installed:

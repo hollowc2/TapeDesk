@@ -1,4 +1,4 @@
-from tapeworm import coinbase
+from src import coinbase
 
 
 def test_fetch_daily_candle_range_uses_latest_daily_candle(monkeypatch):
