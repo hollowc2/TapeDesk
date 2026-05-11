@@ -123,6 +123,15 @@ def test_level2_audio_ignores_trades_below_filter():
     assert player.sides == []
 
 
+def test_all_mode_market_screen_audio_can_play_after_toggle():
+    player = FakeAudioPlayer()
+    app = TapewormApp(mode="all", level2_audio_enabled=True, level2_audio_min_size=0.01, level2_audio_player=player)
+
+    app.handle_market({"type": "match", "product_id": "BTC-USD", "price": "100", "size": "0.02", "side": "buy"})
+
+    assert player.sides == ["buy"]
+
+
 def test_level2_audio_filter_actions_clamp_to_steps():
     app = TapewormApp(mode="l2")
 

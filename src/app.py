@@ -311,6 +311,9 @@ class MarketScreen(Screen):
         Binding("escape", "app.go_back", "Back"),
         Binding("b", "app.go_back", "Back"),
         Binding("c", "toggle_compact", "Compact"),
+        Binding("a", "toggle_audio", "Audio"),
+        Binding("[", "audio_filter_down", "Filter -", priority=True),
+        Binding("]", "audio_filter_up", "Filter +", priority=True),
     ]
 
     symbol = reactive("BTC-USD")
@@ -356,6 +359,18 @@ class MarketScreen(Screen):
     def action_toggle_compact(self) -> None:
         self.compact = not self.compact
         self.apply_compact_layout()
+        self.refresh_market()
+
+    def action_toggle_audio(self) -> None:
+        self.app.toggle_level2_audio()
+        self.refresh_market()
+
+    def action_audio_filter_down(self) -> None:
+        self.app.decrease_level2_audio_filter()
+        self.refresh_market()
+
+    def action_audio_filter_up(self) -> None:
+        self.app.increase_level2_audio_filter()
         self.refresh_market()
 
     def apply_compact_layout(self) -> None:
@@ -496,6 +511,7 @@ class MarketScreen(Screen):
             else:
                 ask_text = " " * right_width
             rows.append(f"{bid_text} | {ask_text}")
+        rows.extend(["-" * row_width, self.app.level2_audio_status_label(self.symbol)])
         return "\n".join(rows)
 
     def _update_book_flashes(self, bids: list[tuple[float, float]], asks: list[tuple[float, float]]) -> None:
@@ -613,24 +629,8 @@ class L2Screen(MarketScreen):
         stats = app.market_stats[self.symbol]
         self.query_one("#book-panel", Static).update(self.render_book(book, stats))
 
-    def render_book(self, book: OrderBook, stats: MarketStats) -> str:
-        audio = self.app.level2_audio_status_label(self.symbol)
-        return f"{audio}\n{super().render_book(book, stats)}"
-
     def action_toggle_compact(self) -> None:
         self.compact = not self.compact
-        self.refresh_market()
-
-    def action_toggle_audio(self) -> None:
-        self.app.toggle_level2_audio()
-        self.refresh_market()
-
-    def action_audio_filter_down(self) -> None:
-        self.app.decrease_level2_audio_filter()
-        self.refresh_market()
-
-    def action_audio_filter_up(self) -> None:
-        self.app.increase_level2_audio_filter()
         self.refresh_market()
 
     def apply_compact_layout(self) -> None:
@@ -1057,7 +1057,7 @@ class TapewormApp(App):
             self.level2_audio_min_size = L2_AUDIO_FILTER_SIZES[index]
 
     def play_level2_trade_audio(self, trade: Trade) -> None:
-        if self.mode != "l2" or not self.level2_audio_enabled:
+        if self.mode not in {"all", "l2"} or not self.level2_audio_enabled:
             return
         if trade.size < self.level2_audio_min_size:
             return
