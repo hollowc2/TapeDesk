@@ -105,5 +105,6 @@ venv/bin/python -m compileall src tests
 Run tests once `pytest` is installed:
 
 ```bash
+venv/bin/python -m pip install -r requirements-dev.txt
 venv/bin/python -m pytest -q
 ```

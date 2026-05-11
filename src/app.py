@@ -169,7 +169,7 @@ class ScreenerScreen(Screen):
         pins = ", ".join(sorted(app.screener_pins)) or "-"
         self.query_one("#screener-status", Static).update(
             f"Sort: {source} | pins: {pins} | prices: {len(app.latest_prices)} | "
-            f"RVol rows: {app.rvol_count} | 1-9/0 sort | w pin | Enter open | q shutdown"
+            f"RVol rows: {app.rvol_count} | {app.status_suffix()}1-9/0 sort | w pin | Enter open | q shutdown"
         )
 
         if selected:
@@ -440,7 +440,7 @@ class MarketScreen(Screen):
         bid_totals = list(accumulate(size for _, size in bids))
         ask_totals = list(accumulate(size for _, size in asks))
         max_size = max((size for _, size in bids + asks), default=0)
-        summary = book.summary(depth)
+        summary = OrderBook.summary_from_levels(bids, asks)
         spread = format_price_value(summary.spread) if summary.spread is not None else "--"
         spread_pct = (
             f"{summary.spread / summary.best_bid * 100:.4f}%"
@@ -801,6 +801,7 @@ class TapewormApp(App):
         self.trades: dict[str, TradeTracker] = {}
         self.tps: dict[str, TpsTracker] = {}
         self.market_stats: dict[str, MarketStats] = {}
+        self.status_message = ""
         self.market_symbols: set[str] = {self.symbol}
         self.market_feed_symbols: set[str] = set()
         self.daily_range_symbols: set[str] = set()
@@ -943,6 +944,10 @@ class TapewormApp(App):
                 symbol, candle = payload
                 if isinstance(candle, dict):
                     self.market_stats.setdefault(str(symbol), MarketStats()).apply_daily_candle(candle)
+            elif event_type == "status":
+                self.status_message = str(payload)
+                for book in self.books.values():
+                    book.status = self.status_message
 
     def handle_ticker(self, message: object) -> None:
         if not isinstance(message, dict) or message.get("type") != "ticker":
@@ -1037,6 +1042,9 @@ class TapewormApp(App):
             base = symbol.split("-", 1)[0]
             parts.append(f">= {format_quantity(self.time_sales_min_size)} {base}")
         return ", ".join(parts) if parts else "All prints"
+
+    def status_suffix(self) -> str:
+        return f"{self.status_message} | " if self.status_message else ""
 
     def level2_audio_status_label(self, symbol: str) -> str:
         base = symbol.split("-", 1)[0]

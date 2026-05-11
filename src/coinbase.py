@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import hmac
 import json
@@ -20,6 +21,20 @@ logger = logging.getLogger(__name__)
 
 EXCHANGE_API = "https://api.exchange.coinbase.com"
 WS_URI = "wss://ws-feed.exchange.coinbase.com"
+PRODUCT_CACHE_SECONDS = 3600
+_products_cache: tuple[float, list[str]] | None = None
+
+
+def env_int(name: str, default: int) -> int:
+    try:
+        value = int(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+    return max(1, value)
+
+
+RVOL_PRODUCT_LIMIT = env_int("TAPEWORM_RVOL_LIMIT", 120)
+RVOL_WORKERS = env_int("TAPEWORM_RVOL_WORKERS", 8)
 
 
 def load_env_file(path: str = ".env") -> None:
@@ -65,18 +80,27 @@ def get_json(url: str, timeout: int = 20):
 
 
 def fetch_usd_products() -> list[str]:
+    global _products_cache
+    now = time.monotonic()
+    if _products_cache is not None:
+        cached_at, cached_products = _products_cache
+        if now - cached_at < PRODUCT_CACHE_SECONDS:
+            return cached_products[:]
+
     try:
         products = get_json(f"{EXCHANGE_API}/products")
     except (OSError, URLError, json.JSONDecodeError) as exc:
         logger.error("Error fetching products: %s", exc)
         return []
-    return [
+    result = [
         item["id"]
         for item in products
         if item.get("quote_currency") == "USD"
         and item.get("status") == "online"
         and not item.get("trading_disabled")
     ]
+    _products_cache = (now, result)
+    return result[:]
 
 
 def fetch_daily_candle_range(symbol: str) -> dict[str, float] | None:
@@ -108,55 +132,58 @@ def fetch_daily_candle_range(symbol: str) -> dict[str, float] | None:
 
 
 def fetch_rvol_data() -> list[dict]:
-    products = fetch_usd_products()
-    crypto_data: list[dict] = []
-    for symbol in products:
-        try:
-            candles = get_json(f"{EXCHANGE_API}/products/{symbol}/candles?granularity=300")
-            stats = get_json(f"{EXCHANGE_API}/products/{symbol}/stats")
-        except (OSError, URLError, json.JSONDecodeError) as exc:
-            logger.debug("Skipping RVol for %s: %s", symbol, exc)
-            continue
+    products = fetch_usd_products()[:RVOL_PRODUCT_LIMIT]
+    workers = max(1, min(RVOL_WORKERS, len(products) or 1))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        rows = list(executor.map(fetch_rvol_row, products))
+    return [row for row in rows if row is not None]
 
-        try:
-            current_hour_volume = sum(float(candle[5]) for candle in candles[:12])
-            prev_hour_volume = sum(float(candle[5]) for candle in candles[12:24])
-            historical_day_volume = sum(float(candle[5]) for candle in candles[:288])
-            volume_24h = float(stats.get("volume", 0))
-            volume_30d = float(stats.get("volume_30day", 0))
-            last_price = float(stats.get("last", 0))
-            if volume_24h <= 0:
-                volume_24h = historical_day_volume
-            if volume_30d <= 0 and historical_day_volume > 0:
-                volume_30d = historical_day_volume * 30
-            if volume_24h <= 0 or volume_30d <= 0:
-                continue
 
-            avg_daily_volume = volume_30d / 30
-            daily_rvol = volume_24h / avg_daily_volume
-            hourly_rvol = current_hour_volume / (avg_daily_volume / 24)
-            hour_change = current_hour_volume / prev_hour_volume if prev_hour_volume > 0 else 1
-            weighted_rvol = daily_rvol * 0.5 + hourly_rvol * 0.3 + hour_change * 0.2
-        except (ValueError, TypeError, IndexError) as exc:
-            logger.debug("Bad RVol payload for %s: %s", symbol, exc)
-            continue
+def fetch_rvol_row(symbol: str) -> dict | None:
+    try:
+        candles = get_json(f"{EXCHANGE_API}/products/{symbol}/candles?granularity=300")
+        stats = get_json(f"{EXCHANGE_API}/products/{symbol}/stats")
+    except (OSError, URLError, json.JSONDecodeError) as exc:
+        logger.debug("Skipping RVol for %s: %s", symbol, exc)
+        return None
 
-        if weighted_rvol > 0:
-            crypto_data.append(
-                {
-                    "Symbol": symbol,
-                    "RVol": round(weighted_rvol, 2),
-                    "Volume24h": round(volume_24h * last_price, 2),
-                    "HourlyRVol": round(hourly_rvol, 2),
-                    "DailyRVol": round(daily_rvol, 2),
-                    "HourChange": round(hour_change, 2),
-                    "AvgDailyVolume": round(avg_daily_volume, 8),
-                    "CurrentHourVolume": round(current_hour_volume, 8),
-                    "PreviousHourVolume": round(prev_hour_volume, 8),
-                    "CurrentDayVolume": round(volume_24h, 8),
-                }
-            )
-    return crypto_data
+    try:
+        current_hour_volume = sum(float(candle[5]) for candle in candles[:12])
+        prev_hour_volume = sum(float(candle[5]) for candle in candles[12:24])
+        historical_day_volume = sum(float(candle[5]) for candle in candles[:288])
+        volume_24h = float(stats.get("volume", 0))
+        volume_30d = float(stats.get("volume_30day", 0))
+        last_price = float(stats.get("last", 0))
+        if volume_24h <= 0:
+            volume_24h = historical_day_volume
+        if volume_30d <= 0 and historical_day_volume > 0:
+            volume_30d = historical_day_volume * 30
+        if volume_24h <= 0 or volume_30d <= 0:
+            return None
+
+        avg_daily_volume = volume_30d / 30
+        daily_rvol = volume_24h / avg_daily_volume
+        hourly_rvol = current_hour_volume / (avg_daily_volume / 24)
+        hour_change = current_hour_volume / prev_hour_volume if prev_hour_volume > 0 else 1
+        weighted_rvol = daily_rvol * 0.5 + hourly_rvol * 0.3 + hour_change * 0.2
+    except (ValueError, TypeError, IndexError) as exc:
+        logger.debug("Bad RVol payload for %s: %s", symbol, exc)
+        return None
+
+    if weighted_rvol <= 0:
+        return None
+    return {
+        "Symbol": symbol,
+        "RVol": round(weighted_rvol, 2),
+        "Volume24h": round(volume_24h * last_price, 2),
+        "HourlyRVol": round(hourly_rvol, 2),
+        "DailyRVol": round(daily_rvol, 2),
+        "HourChange": round(hour_change, 2),
+        "AvgDailyVolume": round(avg_daily_volume, 8),
+        "CurrentHourVolume": round(current_hour_volume, 8),
+        "PreviousHourVolume": round(prev_hour_volume, 8),
+        "CurrentDayVolume": round(volume_24h, 8),
+    }
 
 
 async def websocket_loop(

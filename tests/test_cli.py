@@ -74,13 +74,13 @@ def test_current_tmux_session_name_returns_none_outside_tmux(monkeypatch):
 
 def test_shutdown_workspace_quits_when_not_in_tmux(monkeypatch):
     app = TapewormApp()
-    quit_called = []
+    exit_called = []
     monkeypatch.setattr("src.app.current_tmux_session_name", lambda: None)
-    monkeypatch.setattr(app, "quit", lambda: quit_called.append(True))
+    monkeypatch.setattr(app, "exit", lambda: exit_called.append(True))
 
     app.action_shutdown_workspace()
 
-    assert quit_called == [True]
+    assert exit_called == [True]
 
 
 def test_shutdown_workspace_kills_tmux_session(monkeypatch):
@@ -93,6 +93,18 @@ def test_shutdown_workspace_kills_tmux_session(monkeypatch):
     app.action_shutdown_workspace()
 
     assert killed == ["demo"]
+
+
+def test_app_status_events_update_status_message_and_books():
+    app = TapewormApp(mode="l2")
+    app.ensure_market_state("BTC-USD")
+    app.events.put(("status", "Hub unavailable"))
+
+    app.drain_events()
+
+    assert app.status_message == "Hub unavailable"
+    assert app.books["BTC-USD"].status == "Hub unavailable"
+    assert app.status_suffix() == "Hub unavailable | "
 
 
 def test_level2_audio_disabled_does_not_play():

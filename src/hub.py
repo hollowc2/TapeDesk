@@ -5,7 +5,6 @@ import json
 import logging
 import threading
 import time
-from collections import defaultdict
 from typing import Any
 
 import websockets
@@ -29,8 +28,6 @@ class MarketDataHub:
         self.port = port
         self.loop: asyncio.AbstractEventLoop | None = None
         self.clients: dict[Any, set[str]] = {}
-        self.market_symbols: set[str] = set()
-        self.daily_range_symbols: set[str] = set()
         self.started_market_feeds: set[str] = set()
         self.screener_started = False
         self.lock = threading.Lock()

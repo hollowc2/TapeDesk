@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from src.app import TapewormApp
+from src.app import ScreenerScreen
 import src.models as models
 from src.models import (
     MarketStats,
@@ -97,6 +97,30 @@ def test_order_book_applies_snapshot_updates_and_ticker_fallback():
     assert asks == []
 
 
+def test_order_book_skips_malformed_level2_updates():
+    book = OrderBook("BTC-USD")
+    book.apply({"type": "snapshot", "bids": [["99", "1.5"], ["bad"]], "asks": [["102", "2.5"]]})
+
+    assert book.bids == {99: 1.5}
+
+    assert book.apply(
+        {
+            "type": "l2update",
+            "changes": [
+                ["buy", "100", "4"],
+                ["sell", "bad", "1"],
+                ["hold", "101", "2"],
+                ["sell", "102", "-1"],
+                ["buy", "100"],
+            ],
+        }
+    )
+
+    bids, asks = book.levels()
+    assert bids[0] == (100, 4)
+    assert asks == [(102, 2.5)]
+
+
 def test_market_stats_tracks_vwap_and_daily_range():
     stats = MarketStats()
 
@@ -138,16 +162,16 @@ def test_screener_store_marks_rvol_snapshots_and_app_shows_placeholder_until_one
     store = ScreenerStore()
     store.update_price("BTC-USD", 100)
     row = store.rows["BTC-USD"]
-    app = TapewormApp(mode="screener")
+    screen = ScreenerScreen()
 
-    assert app._rvol_text(row.rvol, row) == "--"
+    assert screen._rvol_text(row.rvol, row) == "--"
 
     store.update_rvol([{"Symbol": "BTC-USD", "RVol": 2, "HourlyRVol": 3, "DailyRVol": 4, "HourChange": 5}])
     row = store.rows["BTC-USD"]
 
     assert row.rvol_snapshot_at > 0
-    assert app._rvol_text(row.rvol, row) == "2.00"
-    assert app._rvol_text(row.hourly_rvol, row) == "3.00"
+    assert screen._rvol_text(row.rvol, row) == "2.00"
+    assert screen._rvol_text(row.hourly_rvol, row) == "3.00"
 
 
 def test_screener_row_rolls_rvol_forward_from_live_volume_deltas(monkeypatch):

@@ -30,13 +30,35 @@ def test_fetch_rvol_data_uses_historical_candles_when_stats_are_missing(monkeypa
 
     rows = coinbase.fetch_rvol_data()
 
-    assert rows == [
-        {
-            "Symbol": "BTC-USD",
-            "RVol": 4.3,
-            "Volume24h": 24000.0,
-            "HourlyRVol": 12.0,
-            "DailyRVol": 1.0,
-            "HourChange": 1.0,
-        }
-    ]
+    assert len(rows) == 1
+    assert rows[0]["Symbol"] == "BTC-USD"
+    assert rows[0]["RVol"] == 4.3
+    assert rows[0]["Volume24h"] == 24000.0
+    assert rows[0]["HourlyRVol"] == 12.0
+    assert rows[0]["DailyRVol"] == 1.0
+    assert rows[0]["HourChange"] == 1.0
+    assert rows[0]["AvgDailyVolume"] == 240.0
+    assert rows[0]["CurrentHourVolume"] == 120.0
+
+
+def test_fetch_rvol_data_limits_products_and_skips_bad_rows(monkeypatch):
+    monkeypatch.setattr(coinbase, "RVOL_PRODUCT_LIMIT", 2)
+    monkeypatch.setattr(coinbase, "RVOL_WORKERS", 1)
+    monkeypatch.setattr(coinbase, "fetch_usd_products", lambda: ["BTC-USD", "ETH-USD", "SOL-USD"])
+
+    def fake_fetch_rvol_row(symbol):
+        if symbol == "ETH-USD":
+            return None
+        return {"Symbol": symbol}
+
+    monkeypatch.setattr(coinbase, "fetch_rvol_row", fake_fetch_rvol_row)
+
+    assert coinbase.fetch_rvol_data() == [{"Symbol": "BTC-USD"}]
+
+
+def test_env_int_uses_default_for_invalid_values(monkeypatch):
+    monkeypatch.setenv("TAPEWORM_TEST_INT", "bad")
+    assert coinbase.env_int("TAPEWORM_TEST_INT", 8) == 8
+
+    monkeypatch.setenv("TAPEWORM_TEST_INT", "0")
+    assert coinbase.env_int("TAPEWORM_TEST_INT", 8) == 1

@@ -3,8 +3,11 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+import logging
 import time
-from typing import Iterable
+from typing import Iterable, Sequence
+
+logger = logging.getLogger(__name__)
 
 
 def price_decimals(price: float) -> int:
@@ -218,17 +221,22 @@ class OrderBook:
             return True
 
         if msg_type == "l2update":
-            for side, price_raw, size_raw in message.get("changes", []):
-                price = float(price_raw)
-                size = float(size_raw)
+            applied = False
+            for change in message.get("changes", []):
+                parsed = self._parse_change(change)
+                if parsed is None:
+                    continue
+                side, price, size = parsed
                 levels = self.bids if side == "buy" else self.asks
                 if size == 0:
                     levels.pop(price, None)
                 else:
                     levels[price] = size
-            self.has_level2 = True
-            self.status = "Live Level 2 depth"
-            return True
+                applied = True
+            if applied:
+                self.has_level2 = True
+                self.status = "Live Level 2 depth"
+            return applied
 
         return False
 
@@ -254,6 +262,13 @@ class OrderBook:
 
     def summary(self, depth: int = 10) -> BookSummary:
         bids, asks = self.levels(depth)
+        return self.summary_from_levels(bids, asks)
+
+    @staticmethod
+    def summary_from_levels(
+        bids: Sequence[tuple[float, float]],
+        asks: Sequence[tuple[float, float]],
+    ) -> BookSummary:
         best_bid = bids[0][0] if bids else None
         best_ask = asks[0][0] if asks else None
         bid_depth = sum(size for _, size in bids)
@@ -271,12 +286,34 @@ class OrderBook:
     @staticmethod
     def _parse_levels(levels: Iterable[Iterable[str]]) -> dict[float, float]:
         parsed: dict[float, float] = {}
-        for price_raw, size_raw in levels:
-            price = float(price_raw)
-            size = float(size_raw)
+        for level in levels:
+            try:
+                price_raw, size_raw = level
+                price = float(price_raw)
+                size = float(size_raw)
+            except (TypeError, ValueError):
+                logger.debug("Skipping bad level 2 level: %r", level)
+                continue
             if size > 0:
                 parsed[price] = size
         return parsed
+
+    @staticmethod
+    def _parse_change(change: object) -> tuple[str, float, float] | None:
+        try:
+            side, price_raw, size_raw = change
+            price = float(price_raw)
+            size = float(size_raw)
+        except (TypeError, ValueError):
+            logger.debug("Skipping bad level 2 change: %r", change)
+            return None
+        if side not in {"buy", "sell"}:
+            logger.debug("Skipping level 2 change with unknown side: %r", change)
+            return None
+        if price <= 0 or size < 0:
+            logger.debug("Skipping level 2 change with invalid price/size: %r", change)
+            return None
+        return str(side), price, size
 
 
 @dataclass
