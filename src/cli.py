@@ -47,7 +47,14 @@ def prompt_orchestrator(args: argparse.Namespace) -> int:
 def run_tool(args: argparse.Namespace) -> int:
     configure_logging()
     symbol = normalize_asset(args.asset)
-    TapewormApp(mode=args.tool_name, symbol=symbol, source=args.source, hub_url=args.hub_url).run()
+    TapewormApp(
+        mode=args.tool_name,
+        symbol=symbol,
+        source=args.source,
+        hub_url=args.hub_url,
+        time_sales_min_notional=getattr(args, "min_notional", 0),
+        time_sales_min_size=getattr(args, "min_qty", None),
+    ).run()
     return 0
 
 
@@ -98,6 +105,19 @@ def build_parser() -> argparse.ArgumentParser:
         tool_parser.add_argument("--asset", default="BTC-USD")
         tool_parser.add_argument("--source", choices=["auto", "hub", "direct"], default="auto")
         tool_parser.add_argument("--hub-url", default=DEFAULT_HUB_URL)
+        if tool_name == "ts":
+            tool_parser.add_argument(
+                "--min-notional",
+                type=float,
+                default=0,
+                help="Only show prints with at least this USD notional value",
+            )
+            tool_parser.add_argument(
+                "--min-qty",
+                type=float,
+                default=None,
+                help="Only show prints with at least this base-asset quantity",
+            )
         tool_parser.set_defaults(func=run_tool)
 
     return parser

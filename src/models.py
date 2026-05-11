@@ -83,7 +83,7 @@ class TradeTracker:
         self.top: list[Trade] = []
 
     def add(self, trade: Trade) -> bool:
-        if self.min_size is not None and trade.size <= self.min_size:
+        if self.min_size is not None and trade.size < self.min_size:
             return False
         if trade.notional < self.min_notional:
             return False

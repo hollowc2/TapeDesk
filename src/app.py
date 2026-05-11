@@ -9,6 +9,7 @@ import time
 from datetime import datetime
 from itertools import accumulate
 
+from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
@@ -416,17 +417,15 @@ class L2Screen(MarketScreen):
         Binding("c", "toggle_compact", "Compact"),
     ]
 
+    def __init__(self, symbol: str):
+        super().__init__(symbol)
+        self.compact = True
+
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         yield Label(f"{self.symbol} Level 2", id="screen-title")
         yield Static(id="book-panel")
         yield Footer()
-
-    def on_mount(self) -> None:
-        self.compact = True
-        self.app.track_market_symbol(self.symbol)
-        self.set_interval(0.25, self.refresh_market)
-        self.refresh_market()
 
     def refresh_market(self) -> None:
         app = self.app
@@ -438,10 +437,14 @@ class L2Screen(MarketScreen):
         self.compact = not self.compact
         self.refresh_market()
 
+    def apply_compact_layout(self) -> None:
+        return
+
 
 class TimeSalesScreen(Screen):
     BINDINGS = [
         Binding("q", "quit", "Quit"),
+        Binding("s", "ignore_screener", show=False, priority=True),
     ]
 
     symbol = reactive("BTC-USD")
@@ -453,26 +456,44 @@ class TimeSalesScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         yield Label(f"{self.symbol} Time & Sales", id="screen-title")
-        yield Static(id="price-panel")
-        yield Static(id="tps-panel")
-        yield Static(id="trades-panel")
+        yield Static(id="time-sales-status")
+        table = DataTable(id="time-sales-table", zebra_stripes=True)
+        table.add_column("Price", key="price", width=16)
+        table.add_column("Qty", key="qty", width=14)
+        table.add_column("Time", key="time", width=10)
+        yield table
         yield Footer()
 
     def on_mount(self) -> None:
         self.app.track_market_symbol(self.symbol)
-        self.set_interval(0.25, self.refresh_time_sales)
+        self.set_interval(0.1, self.refresh_time_sales)
         self.refresh_time_sales()
+
+    @property
+    def table(self) -> DataTable:
+        return self.query_one("#time-sales-table", DataTable)
 
     def refresh_time_sales(self) -> None:
         app = self.app
-        price = app.latest_prices.get(self.symbol, 0)
-        book = app.books[self.symbol]
         tps = app.tps[self.symbol]
         trades = app.trades[self.symbol]
-        helper = MarketScreen(self.symbol)
-        self.query_one("#price-panel", Static).update(helper.render_price(price, book))
-        self.query_one("#tps-panel", Static).update(helper.render_tps(tps))
-        self.query_one("#trades-panel", Static).update(helper.render_trades(trades))
+        table = self.table
+        table.clear()
+        for trade in trades.recent:
+            style = "bold green" if trade.side == "buy" else "bold red"
+            table.add_row(
+                Text(format_price_value(trade.price), style=style),
+                Text(format_quantity(trade.size), style=style),
+                Text(trade.time_label, style=style),
+            )
+
+        filter_label = app.time_sales_filter_label(self.symbol)
+        self.query_one("#time-sales-status", Static).update(
+            f"{self.symbol} | Prints: {len(trades.recent)} | TPS: {tps.current} | Filter: {filter_label}"
+        )
+
+    def action_ignore_screener(self) -> None:
+        return
 
 
 class TapewormApp(App):
@@ -491,12 +512,12 @@ class TapewormApp(App):
         text-style: bold;
     }
 
-    #screener-table {
+    #screener-table, #time-sales-table {
         height: 1fr;
         margin: 1;
     }
 
-    #screener-status {
+    #screener-status, #time-sales-status {
         dock: bottom;
         height: 1;
         padding: 0 1;
@@ -547,12 +568,22 @@ class TapewormApp(App):
         Binding("s", "show_screener", "Screener"),
     ]
 
-    def __init__(self, mode: str = "all", symbol: str = "BTC-USD", source: str = "auto", hub_url: str = DEFAULT_HUB_URL):
+    def __init__(
+        self,
+        mode: str = "all",
+        symbol: str = "BTC-USD",
+        source: str = "auto",
+        hub_url: str = DEFAULT_HUB_URL,
+        time_sales_min_notional: float = 0,
+        time_sales_min_size: float | None = None,
+    ):
         super().__init__()
         self.mode = mode
         self.symbol = normalize_asset(symbol)
         self.source = source
         self.hub_url = hub_url
+        self.time_sales_min_notional = max(0, time_sales_min_notional)
+        self.time_sales_min_size = max(0, time_sales_min_size) if time_sales_min_size is not None else None
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.screener = ScreenerStore()
         self.screener_sort = "volume_24h"
@@ -721,12 +752,13 @@ class TapewormApp(App):
         if msg_type == "match":
             self.tps[symbol].add_transaction()
             try:
+                price = float(message["price"])
                 trade = Trade(
                     symbol=symbol,
                     size=float(message["size"]),
-                    price=float(message["price"]),
-                    side=str(message["side"]),
-                    time=datetime.now(),
+                    price=price,
+                    side=self.trade_side(symbol, price, message),
+                    time=parse_trade_time(message.get("time")),
                 )
             except (KeyError, TypeError, ValueError):
                 return
@@ -763,9 +795,44 @@ class TapewormApp(App):
 
     def ensure_market_state(self, symbol: str) -> None:
         self.books.setdefault(symbol, OrderBook(symbol))
-        self.trades.setdefault(symbol, TradeTracker())
+        self.trades.setdefault(symbol, self.new_trade_tracker())
         self.tps.setdefault(symbol, TpsTracker())
         self.market_stats.setdefault(symbol, MarketStats())
+
+    def new_trade_tracker(self) -> TradeTracker:
+        if self.mode == "ts":
+            return TradeTracker(
+                max_recent=200,
+                max_top=0,
+                min_notional=self.time_sales_min_notional,
+                min_size=self.time_sales_min_size,
+            )
+        return TradeTracker()
+
+    def time_sales_filter_label(self, symbol: str) -> str:
+        parts = []
+        if self.time_sales_min_notional > 0:
+            parts.append(f">= {format_price(self.time_sales_min_notional)}")
+        if self.time_sales_min_size is not None:
+            base = symbol.split("-", 1)[0]
+            parts.append(f">= {format_quantity(self.time_sales_min_size)} {base}")
+        return ", ".join(parts) if parts else "All prints"
+
+    def trade_side(self, symbol: str, price: float, message: dict) -> str:
+        side = str(message.get("side", "")).lower()
+        if side in {"buy", "sell"}:
+            return side
+
+        summary = self.books[symbol].summary()
+        if summary.best_ask is not None and price >= summary.best_ask:
+            return "buy"
+        if summary.best_bid is not None and price <= summary.best_bid:
+            return "sell"
+
+        last_price = self.latest_prices.get(symbol)
+        if last_price is not None:
+            return "buy" if price >= last_price else "sell"
+        return "buy"
 
     def open_market(self, symbol: str) -> None:
         if self.mode == "screener" and self.source in {"hub", "auto"} and not self._direct_feeds:
@@ -796,3 +863,15 @@ def main() -> None:
         handlers=[logging.FileHandler("tapeworm.log")],
     )
     TapewormApp().run()
+
+
+def parse_trade_time(value: object) -> datetime:
+    if not isinstance(value, str) or not value:
+        return datetime.now()
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return datetime.now()
+    if parsed.tzinfo is None:
+        return parsed
+    return parsed.astimezone().replace(tzinfo=None)

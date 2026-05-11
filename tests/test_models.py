@@ -58,6 +58,13 @@ def test_trade_tracker_filters_by_notional_not_asset_size():
     assert tracker.add(Trade("BTC-USD", 0.002, 80_000, "buy")) is True
 
 
+def test_trade_tracker_uses_min_size_as_inclusive_threshold():
+    tracker = TradeTracker(min_notional=0, min_size=100)
+
+    assert tracker.add(Trade("XRP-USD", 99.9, 0.50, "buy")) is False
+    assert tracker.add(Trade("XRP-USD", 100, 0.50, "buy")) is True
+
+
 def test_tps_tracker_samples_once_per_second_and_calculates_average():
     tracker = TpsTracker(window_seconds=30)
     start = datetime(2026, 1, 1, 12, 0, 0)
