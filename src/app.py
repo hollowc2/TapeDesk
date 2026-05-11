@@ -26,6 +26,7 @@ from .coinbase import (
     load_env_file,
     websocket_loop,
 )
+from .tmux import current_tmux_session_name, kill_tmux_session
 from .models import (
     MarketStats,
     OrderBook,
@@ -116,7 +117,7 @@ class ScreenerScreen(Screen):
 
         self.query_one("#screener-status", Static).update(
             f"Sort: {source} | prices: {len(app.latest_prices)} | RVol rows: {app.rvol_count} | "
-            "v: toggle Vol/RVol | Enter: open selected | o: BTC order book | r: refresh RVol | q: quit"
+            "v: toggle Vol/RVol | Enter: open selected | o: BTC order book | r: refresh RVol | q: shutdown"
         )
 
         if selected:
@@ -564,7 +565,7 @@ class TapewormApp(App):
     """
 
     BINDINGS = [
-        Binding("q", "quit", "Quit"),
+        Binding("q", "shutdown_workspace", "Shutdown", priority=True),
         Binding("s", "show_screener", "Screener"),
     ]
 
@@ -854,6 +855,13 @@ class TapewormApp(App):
     def action_go_back(self) -> None:
         if len(self._screen_stack) > 1:
             self.pop_screen()
+
+    def action_shutdown_workspace(self) -> None:
+        session_name = current_tmux_session_name()
+        if session_name:
+            kill_tmux_session(session_name)
+            return
+        self.quit()
 
 
 def main() -> None:

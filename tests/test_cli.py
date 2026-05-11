@@ -1,6 +1,6 @@
-from src.app import normalize_asset
+from src.app import TapewormApp, normalize_asset
 from src.cli import build_parser
-from src.tmux import build_hub_command, build_tool_commands, build_tool_rows, launch_tmux
+from src.tmux import build_hub_command, build_tool_commands, build_tool_rows, current_tmux_session_name, launch_tmux
 
 
 def test_normalize_asset_defaults_to_usd_pair():
@@ -47,6 +47,35 @@ def test_hub_command_uses_host_and_port_from_url():
     command = build_hub_command("ws://127.0.0.1:8765")
 
     assert command.endswith("-m src hub --host 127.0.0.1 --port 8765")
+
+
+def test_current_tmux_session_name_returns_none_outside_tmux(monkeypatch):
+    monkeypatch.delenv("TMUX", raising=False)
+
+    assert current_tmux_session_name() is None
+
+
+def test_shutdown_workspace_quits_when_not_in_tmux(monkeypatch):
+    app = TapewormApp()
+    quit_called = []
+    monkeypatch.setattr("src.app.current_tmux_session_name", lambda: None)
+    monkeypatch.setattr(app, "quit", lambda: quit_called.append(True))
+
+    app.action_shutdown_workspace()
+
+    assert quit_called == [True]
+
+
+def test_shutdown_workspace_kills_tmux_session(monkeypatch):
+    app = TapewormApp()
+    killed = []
+    monkeypatch.setattr("src.app.current_tmux_session_name", lambda: "demo")
+    monkeypatch.setattr("src.app.kill_tmux_session", lambda session_name: killed.append(session_name))
+    monkeypatch.setenv("TMUX", "/tmp/tmux-1000/default,123,0")
+
+    app.action_shutdown_workspace()
+
+    assert killed == ["demo"]
 
 
 def test_launch_tmux_uses_seventy_thirty_splits_for_each_row():

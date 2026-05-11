@@ -34,6 +34,7 @@ venv/bin/python -m src orchestrator
 ```
 
 The orchestrator asks for assets and tools, starts a local market-data hub in a separate tmux window, and opens the tools layout in the visible window.
+Press `q` in any tool window to shut down the entire tmux workspace, including the hub and every open tool.
 
 Run individual tools:
 

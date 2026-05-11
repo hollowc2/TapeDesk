@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shlex
 import subprocess
 import sys
@@ -75,6 +76,20 @@ def pane_width(pane_id: str) -> int:
             text=True,
         ).strip()
     )
+
+
+def current_tmux_session_name() -> str | None:
+    if not os.environ.get("TMUX"):
+        return None
+    try:
+        session_name = subprocess.check_output(["tmux", "display-message", "-p", "#S"], text=True).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return session_name or None
+
+
+def kill_tmux_session(session_name: str) -> None:
+    subprocess.run(["tmux", "kill-session", "-t", session_name], check=False)
 
 
 def launch_tmux(
