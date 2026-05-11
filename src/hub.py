@@ -18,7 +18,7 @@ from .coinbase import (
     load_env_file,
     websocket_loop,
 )
-from .app import normalize_asset
+from .shared import normalize_asset
 
 logger = logging.getLogger(__name__)
 

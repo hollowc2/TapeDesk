@@ -7,7 +7,7 @@ import sys
 from datetime import datetime
 from urllib.parse import urlparse
 
-from .app import normalize_asset
+from .shared import normalize_asset
 
 VALID_TOOLS = {"screener", "l2", "ts"}
 

@@ -4,8 +4,9 @@ import argparse
 import logging
 import sys
 
-from .app import TapewormApp, DEFAULT_HUB_URL, normalize_asset
+from .app import TapewormApp, DEFAULT_HUB_URL
 from .hub import run_hub
+from .shared import normalize_asset
 from .tmux import launch_tmux
 
 

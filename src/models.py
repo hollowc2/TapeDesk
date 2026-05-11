@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+import time
 from typing import Iterable
 
 
@@ -34,6 +36,10 @@ def format_volume(volume: float) -> str:
     if volume >= 1_000:
         return f"${volume / 1_000:.2f}K"
     return f"${volume:,.0f}"
+
+
+def format_percent(value: float) -> str:
+    return f"{value:+.2f}%"
 
 
 def format_quantity(quantity: float) -> str:
@@ -283,6 +289,18 @@ class ScreenerRow:
     daily_rvol: float = 0
     hour_change: float = 0
     previous_price: float | None = None
+    last_price_changed_at: float = 0
+    last_updated_at: float = 0
+    session_high: float = 0
+    session_low: float = 0
+    high_low_flash_at: float = 0
+    high_low_flash_direction: str = ""
+    best_bid: float | None = None
+    best_ask: float | None = None
+    notional_velocity: float = 0
+    price_history: deque[tuple[float, float]] = field(default_factory=deque)
+    tick_times: deque[float] = field(default_factory=deque)
+    volume_samples: deque[tuple[float, float]] = field(default_factory=deque)
 
     @property
     def price_direction(self) -> str:
@@ -290,18 +308,117 @@ class ScreenerRow:
             return "flat"
         return "up" if self.price > self.previous_price else "down"
 
+    @property
+    def spread(self) -> float | None:
+        if self.best_bid is None or self.best_ask is None:
+            return None
+        return max(0, self.best_ask - self.best_bid)
+
+    @property
+    def spread_pct(self) -> float:
+        if self.spread is None or not self.best_bid:
+            return 0
+        return self.spread / self.best_bid * 100
+
+    @property
+    def tick_count(self) -> int:
+        return len(self.tick_times)
+
+    def age(self, now: float | None = None) -> float:
+        if not self.last_updated_at:
+            return 0
+        now = time.monotonic() if now is None else now
+        return max(0, now - self.last_updated_at)
+
+    def percent_change(self, seconds: int) -> float:
+        if self.price <= 0 or len(self.price_history) < 2:
+            return 0
+        target = self.last_updated_at - seconds
+        baseline = self.price_history[0][1]
+        for changed_at, price in self.price_history:
+            if changed_at <= target:
+                baseline = price
+            else:
+                break
+        if baseline <= 0:
+            return 0
+        return (self.price - baseline) / baseline * 100
+
+    def update_price(self, price: float, volume_24h: float | None = None, now: float | None = None) -> None:
+        now = time.monotonic() if now is None else now
+        self.last_updated_at = now
+
+        if self.price and price != self.price:
+            self.previous_price = self.price
+            self.last_price_changed_at = now
+            self.price_history.append((now, price))
+            self.tick_times.append(now)
+            if self.session_high and price > self.session_high:
+                self.high_low_flash_at = now
+                self.high_low_flash_direction = "high"
+            elif self.session_low and price < self.session_low:
+                self.high_low_flash_at = now
+                self.high_low_flash_direction = "low"
+        elif self.price:
+            self.previous_price = self.price
+        else:
+            self.price_history.append((now, price))
+
+        self.price = price
+        self.session_high = max(self.session_high or price, price)
+        self.session_low = min(self.session_low or price, price)
+
+        if volume_24h is not None:
+            self._update_volume(volume_24h, now)
+
+        self._prune(now)
+
+    def update_quote(self, best_bid: float | None = None, best_ask: float | None = None) -> None:
+        if best_bid is not None and best_bid > 0:
+            self.best_bid = best_bid
+        if best_ask is not None and best_ask > 0:
+            self.best_ask = best_ask
+
+    def _update_volume(self, volume_24h: float, now: float) -> None:
+        previous = self.volume_samples[-1] if self.volume_samples else None
+        self.volume_24h = volume_24h
+        self.volume_samples.append((now, volume_24h))
+        if previous is None:
+            return
+        previous_at, previous_volume = previous
+        elapsed = now - previous_at
+        volume_delta = volume_24h - previous_volume
+        if elapsed > 0 and volume_delta > 0:
+            self.notional_velocity = volume_delta / elapsed
+
+    def _prune(self, now: float) -> None:
+        price_cutoff = now - 3600
+        while len(self.price_history) > 1 and self.price_history[1][0] < price_cutoff:
+            self.price_history.popleft()
+        tick_cutoff = now - 60
+        while self.tick_times and self.tick_times[0] < tick_cutoff:
+            self.tick_times.popleft()
+        volume_cutoff = now - 60
+        while len(self.volume_samples) > 2 and self.volume_samples[0][0] < volume_cutoff:
+            self.volume_samples.popleft()
+
 
 class ScreenerStore:
     def __init__(self):
         self.rows: dict[str, ScreenerRow] = {}
 
-    def update_price(self, symbol: str, price: float, volume_24h: float | None = None) -> None:
+    def update_price(
+        self,
+        symbol: str,
+        price: float,
+        volume_24h: float | None = None,
+        best_bid: float | None = None,
+        best_ask: float | None = None,
+        now: float | None = None,
+    ) -> None:
         row = self.rows.setdefault(symbol, ScreenerRow(symbol=symbol))
-        if row.price:
-            row.previous_price = row.price
-        row.price = price
-        if volume_24h is not None:
-            row.volume_24h = volume_24h
+        row.update_price(price, volume_24h, now)
+        row.update_quote(best_bid, best_ask)
 
     def update_rvol(self, metrics: Iterable[dict]) -> None:
         for item in metrics:
@@ -314,20 +431,66 @@ class ScreenerStore:
             row.daily_rvol = float(item.get("DailyRVol", 0))
             row.hour_change = float(item.get("HourChange", 0))
 
-    def top(self, limit: int = 20, sort_by: str = "volume_24h", min_rvol: float = 1) -> list[ScreenerRow]:
+    def top(
+        self,
+        limit: int = 20,
+        sort_by: str = "volume_24h",
+        min_rvol: float = 1,
+        pinned_symbols: Iterable[str] = (),
+    ) -> list[ScreenerRow]:
+        pinned = set(pinned_symbols)
+        all_rows = [row for row in self.rows.values() if row.price > 0]
+        rows = all_rows
         if sort_by == "rvol":
-            rows = [row for row in self.rows.values() if row.price > 0 and row.rvol >= min_rvol]
-            rows.sort(key=lambda row: (row.rvol, row.volume_24h, row.symbol), reverse=True)
-            return rows[:limit]
+            rows = [row for row in rows if row.rvol >= min_rvol]
+        elif sort_by == "volume_24h":
+            rows = [row for row in rows if row.volume_24h > 0]
+        rows.extend(row for row in all_rows if row.symbol in pinned and row not in rows)
+        return self._ranked(rows, limit, sort_by, pinned_symbols)
 
-        rows = [row for row in self.rows.values() if row.price > 0 and row.volume_24h > 0]
-        rows.sort(key=lambda row: (row.volume_24h, row.rvol, row.symbol), reverse=True)
-        return rows[:limit]
-
-    def live_prices(self, limit: int = 20, sort_by: str = "volume_24h") -> list[ScreenerRow]:
+    def live_prices(
+        self,
+        limit: int = 20,
+        sort_by: str = "volume_24h",
+        pinned_symbols: Iterable[str] = (),
+    ) -> list[ScreenerRow]:
         rows = [row for row in self.rows.values() if row.price > 0]
+        return self._ranked(rows, limit, sort_by, pinned_symbols)
+
+    def _ranked(
+        self,
+        rows: list[ScreenerRow],
+        limit: int,
+        sort_by: str,
+        pinned_symbols: Iterable[str],
+    ) -> list[ScreenerRow]:
+        pinned = set(pinned_symbols)
+        rows.sort(key=lambda row: self._sort_key(row, sort_by), reverse=True)
+        pinned_rows = sorted([row for row in rows if row.symbol in pinned], key=lambda row: row.symbol)
+        selected = pinned_rows[:]
+        for row in rows:
+            if row.symbol not in pinned and len(selected) < limit:
+                selected.append(row)
+        return selected[:limit]
+
+    @staticmethod
+    def _sort_key(row: ScreenerRow, sort_by: str) -> tuple[float, float, str]:
         if sort_by == "rvol":
-            rows.sort(key=lambda row: (row.rvol, row.volume_24h, row.symbol), reverse=True)
-        else:
-            rows.sort(key=lambda row: (row.volume_24h, row.rvol, row.symbol), reverse=True)
-        return rows[:limit]
+            return (row.rvol, row.volume_24h, row.symbol)
+        if sort_by == "hourly_rvol":
+            return (row.hourly_rvol, row.rvol, row.symbol)
+        if sort_by == "change_1m":
+            return (abs(row.percent_change(60)), row.volume_24h, row.symbol)
+        if sort_by == "change_5m":
+            return (abs(row.percent_change(300)), row.volume_24h, row.symbol)
+        if sort_by == "change_15m":
+            return (abs(row.percent_change(900)), row.volume_24h, row.symbol)
+        if sort_by == "change_1h":
+            return (abs(row.percent_change(3600)), row.volume_24h, row.symbol)
+        if sort_by == "tick_count":
+            return (row.tick_count, row.notional_velocity, row.symbol)
+        if sort_by == "notional_velocity":
+            return (row.notional_velocity, row.tick_count, row.symbol)
+        if sort_by == "spread":
+            return (row.spread_pct, row.volume_24h, row.symbol)
+        return (row.volume_24h, row.rvol, row.symbol)

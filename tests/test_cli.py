@@ -1,5 +1,6 @@
-from src.app import TapewormApp, normalize_asset
+from src.app import TapewormApp
 from src.cli import build_parser
+from src.shared import normalize_asset
 from src.tmux import build_hub_command, build_tool_commands, build_tool_rows, current_tmux_session_name, launch_tmux
 
 

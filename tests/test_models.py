@@ -124,8 +124,51 @@ def test_screener_store_tracks_price_direction_and_sorts_by_selected_metric():
     rows = store.top(limit=2)
     assert [row.symbol for row in rows] == ["BTC-USD", "ETH-USD"]
     assert rows[0].price_direction == "up"
+    assert rows[0].last_price_changed_at > 0
     assert [row.symbol for row in store.live_prices(limit=3)] == ["BTC-USD", "ETH-USD", "DOGE-USD"]
 
     rvol_rows = store.top(limit=2, sort_by="rvol")
     assert [row.symbol for row in rvol_rows] == ["ETH-USD", "BTC-USD"]
     assert [row.symbol for row in store.live_prices(limit=3, sort_by="rvol")] == ["ETH-USD", "BTC-USD", "DOGE-USD"]
+
+
+def test_screener_row_tracks_momentum_spread_velocity_and_high_low():
+    store = ScreenerStore()
+    store.update_price("BTC-USD", 100, volume_24h=1_000, best_bid=99, best_ask=101, now=0)
+    store.update_price("BTC-USD", 106, volume_24h=1_300, now=60)
+
+    row = store.rows["BTC-USD"]
+    assert row.percent_change(60) == 6
+    assert row.tick_count == 1
+    assert round(row.spread_pct, 2) == 2.02
+    assert row.notional_velocity == 5
+    assert row.high_low_flash_direction == "high"
+
+    store.update_price("BTC-USD", 94, now=70)
+
+    assert row.percent_change(60) == -6
+    assert row.tick_count == 2
+    assert row.age(75) == 5
+    assert row.high_low_flash_direction == "low"
+
+
+def test_screener_store_keeps_pinned_symbols_visible_before_sorted_rows():
+    store = ScreenerStore()
+    store.update_rvol(
+        [
+            {"Symbol": "BTC-USD", "Volume24h": 1000, "RVol": 2},
+            {"Symbol": "ETH-USD", "Volume24h": 500, "RVol": 4},
+            {"Symbol": "DOGE-USD", "Volume24h": 10, "RVol": 0.5},
+        ]
+    )
+    store.update_price("BTC-USD", 100)
+    store.update_price("ETH-USD", 50)
+    store.update_price("DOGE-USD", 1)
+
+    rows = store.top(limit=2, pinned_symbols={"DOGE-USD"})
+
+    assert [row.symbol for row in rows] == ["DOGE-USD", "BTC-USD"]
+    assert [row.symbol for row in store.top(limit=2, sort_by="rvol", pinned_symbols={"DOGE-USD"})] == [
+        "DOGE-USD",
+        "ETH-USD",
+    ]

@@ -26,6 +26,7 @@ from .coinbase import (
     load_env_file,
     websocket_loop,
 )
+from .shared import normalize_asset
 from .tmux import current_tmux_session_name, kill_tmux_session
 from .models import (
     MarketStats,
@@ -36,6 +37,7 @@ from .models import (
     TradeTracker,
     format_price,
     format_price_value,
+    format_percent,
     format_quantity,
     format_volume,
 )
@@ -43,13 +45,23 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_HUB_URL = "ws://127.0.0.1:8765"
-
-
-def normalize_asset(asset: str) -> str:
-    symbol = asset.strip().upper()
-    if "-" not in symbol:
-        symbol = f"{symbol}-USD"
-    return symbol
+SCREENER_FLASH_SECONDS = 0.75
+SCREENER_HIGH_LOW_FLASH_SECONDS = 1.5
+SCREENER_RVOL_ALERT = 3
+SCREENER_MOVE_ALERT_PCT = 2
+SCREENER_VOLUME_SPIKE_ALERT = 3
+SCREENER_SORT_LABELS = {
+    "volume_24h": "24h volume",
+    "rvol": "RVol",
+    "hourly_rvol": "hourly RVol",
+    "change_1m": "1m % change",
+    "change_5m": "5m % change",
+    "change_15m": "15m % change",
+    "change_1h": "1h % change",
+    "tick_count": "tick count",
+    "notional_velocity": "notional/sec",
+    "spread": "spread %",
+}
 
 
 class ScreenerScreen(Screen):
@@ -58,6 +70,17 @@ class ScreenerScreen(Screen):
         Binding("o", "open_btc", "BTC Book"),
         Binding("r", "refresh_rvol", "Refresh RVol"),
         Binding("v", "toggle_sort", "Vol/RVol"),
+        Binding("w", "toggle_watch", "Pin"),
+        Binding("1", "sort_volume", "Vol"),
+        Binding("2", "sort_rvol", "RVol"),
+        Binding("3", "sort_hourly_rvol", "Hourly"),
+        Binding("4", "sort_change_1m", "1m%"),
+        Binding("5", "sort_change_5m", "5m%"),
+        Binding("6", "sort_change_15m", "15m%"),
+        Binding("7", "sort_change_1h", "1h%"),
+        Binding("8", "sort_tick_count", "Ticks"),
+        Binding("9", "sort_notional_velocity", "$/s"),
+        Binding("0", "sort_spread", "Spread"),
     ]
 
     def compose(self) -> ComposeResult:
@@ -65,19 +88,27 @@ class ScreenerScreen(Screen):
         yield Label("Tapeworm Screener", id="screen-title")
         yield Static("Connecting to Coinbase feeds...", id="screener-status")
         table = DataTable(id="screener-table", cursor_type="row", zebra_stripes=True)
-        table.add_column("Symbol", key="symbol", width=14)
-        table.add_column("Last", key="price", width=16)
-        table.add_column("24h Vol", key="volume_24h", width=10)
-        table.add_column("RVol", key="rvol", width=8)
-        table.add_column("Hourly", key="hourly", width=8)
-        table.add_column("Daily", key="daily", width=8)
-        table.add_column("1h Chg", key="hour_change", width=8)
-        table.add_column("Tick", key="direction", width=6)
+        table.add_column("Pin", key="pin", width=3)
+        table.add_column("Symbol", key="symbol", width=10)
+        table.add_column("Last", key="price", width=14)
+        table.add_column("1m", key="change_1m", width=8)
+        table.add_column("5m", key="change_5m", width=8)
+        table.add_column("15m", key="change_15m", width=8)
+        table.add_column("1h", key="change_1h", width=8)
+        table.add_column("Sprd", key="spread", width=7)
+        table.add_column("$/s", key="velocity", width=8)
+        table.add_column("24h Vol", key="volume_24h", width=9)
+        table.add_column("RVol", key="rvol", width=6)
+        table.add_column("Hr", key="hourly", width=6)
+        table.add_column("Ticks", key="ticks", width=5)
+        table.add_column("Alert", key="alert", width=12)
+        table.add_column("Age", key="age", width=5)
+        table.add_column("Tick", key="direction", width=5)
         yield table
         yield Footer()
 
     def on_mount(self) -> None:
-        self.set_interval(1, self.refresh_table)
+        self.set_interval(0.25, self.refresh_table)
         self.refresh_table()
 
     @property
@@ -87,37 +118,53 @@ class ScreenerScreen(Screen):
     def refresh_table(self) -> None:
         app = self.app
         sort_by = app.screener_sort
-        rows = app.screener.top(limit=20, sort_by=sort_by)
-        source = "RVol >= 1" if sort_by == "rvol" else "24h volume"
+        rows = app.screener.top(limit=20, sort_by=sort_by, pinned_symbols=app.screener_pins)
+        source = SCREENER_SORT_LABELS.get(sort_by, sort_by)
         if not rows:
-            rows = app.screener.live_prices(limit=20, sort_by=sort_by)
+            rows = app.screener.live_prices(limit=20, sort_by=sort_by, pinned_symbols=app.screener_pins)
             source = f"live prices, waiting for {source}"
         table = self.table
         selected = None
         if table.cursor_row is not None and table.row_count:
             try:
-                selected = table.get_row_at(table.cursor_row)[0]
+                selected = table.get_row_at(table.cursor_row)[1]
             except Exception:
                 selected = None
 
         table.clear()
+        now = time.monotonic()
         for row in rows:
             direction = {"up": "UP", "down": "DOWN", "flat": "-"}[row.price_direction]
+            is_flash = now - row.last_price_changed_at < SCREENER_FLASH_SECONDS
+            style = self._tick_style(row.price_direction, is_flash)
+            high_low_style = self._high_low_style(row.high_low_flash_direction, now - row.high_low_flash_at)
+            alert = self._alert_text(row, now)
+            alert_style = high_low_style or self._alert_style(alert)
+            price_cell = Text(format_price(row.price), style=style) if style else format_price(row.price)
+            direction_cell = Text(direction, style=style) if style else direction
             table.add_row(
+                "*" if row.symbol in app.screener_pins else "",
                 row.symbol,
-                format_price(row.price),
+                price_cell,
+                self._percent_cell(row.percent_change(60)),
+                self._percent_cell(row.percent_change(300)),
+                self._percent_cell(row.percent_change(900)),
+                self._percent_cell(row.percent_change(3600)),
+                self._spread_text(row),
+                self._velocity_text(row.notional_velocity),
                 format_volume(row.volume_24h),
                 f"{row.rvol:.2f}",
                 f"{row.hourly_rvol:.2f}",
-                f"{row.daily_rvol:.2f}",
-                f"{row.hour_change:.2f}",
-                direction,
+                str(row.tick_count),
+                Text(alert, style=alert_style) if alert_style else alert,
+                self._age_text(row.age(now)),
+                direction_cell,
                 key=row.symbol,
             )
 
         self.query_one("#screener-status", Static).update(
-            f"Sort: {source} | prices: {len(app.latest_prices)} | RVol rows: {app.rvol_count} | "
-            "v: toggle Vol/RVol | Enter: open selected | o: BTC order book | r: refresh RVol | q: shutdown"
+            f"Sort: {source} | pins: {','.join(sorted(app.screener_pins))} | prices: {len(app.latest_prices)} | "
+            f"RVol rows: {app.rvol_count} | 1-9/0 sort | w pin | Enter open | r refresh | q shutdown"
         )
 
         if selected:
@@ -133,7 +180,7 @@ class ScreenerScreen(Screen):
         table = self.table
         if table.cursor_row is None or not table.row_count:
             return
-        symbol = str(table.get_row_at(table.cursor_row)[0])
+        symbol = str(table.get_row_at(table.cursor_row)[1])
         self.app.open_market(symbol)
 
     def action_refresh_rvol(self) -> None:
@@ -145,6 +192,108 @@ class ScreenerScreen(Screen):
     def action_toggle_sort(self) -> None:
         self.app.toggle_screener_sort()
         self.refresh_table()
+
+    def action_toggle_watch(self) -> None:
+        table = self.table
+        if table.cursor_row is None or not table.row_count:
+            return
+        self.app.toggle_screener_pin(str(table.get_row_at(table.cursor_row)[1]))
+        self.refresh_table()
+
+    def action_sort_volume(self) -> None:
+        self._set_sort("volume_24h")
+
+    def action_sort_rvol(self) -> None:
+        self._set_sort("rvol")
+
+    def action_sort_hourly_rvol(self) -> None:
+        self._set_sort("hourly_rvol")
+
+    def action_sort_change_1m(self) -> None:
+        self._set_sort("change_1m")
+
+    def action_sort_change_5m(self) -> None:
+        self._set_sort("change_5m")
+
+    def action_sort_change_15m(self) -> None:
+        self._set_sort("change_15m")
+
+    def action_sort_change_1h(self) -> None:
+        self._set_sort("change_1h")
+
+    def action_sort_tick_count(self) -> None:
+        self._set_sort("tick_count")
+
+    def action_sort_notional_velocity(self) -> None:
+        self._set_sort("notional_velocity")
+
+    def action_sort_spread(self) -> None:
+        self._set_sort("spread")
+
+    def _set_sort(self, sort_by: str) -> None:
+        self.app.set_screener_sort(sort_by)
+        self.refresh_table()
+
+    def _tick_style(self, direction: str, is_flash: bool) -> str:
+        if not is_flash:
+            return ""
+        if direction == "up":
+            return "bold white on dark_green"
+        if direction == "down":
+            return "bold white on dark_red"
+        return ""
+
+    def _high_low_style(self, direction: str, elapsed: float) -> str:
+        if elapsed >= SCREENER_HIGH_LOW_FLASH_SECONDS:
+            return ""
+        if direction == "high":
+            return "bold white on dark_green"
+        if direction == "low":
+            return "bold white on dark_red"
+        return ""
+
+    def _percent_cell(self, value: float) -> Text:
+        if value > 0:
+            return Text(format_percent(value), style="green")
+        if value < 0:
+            return Text(format_percent(value), style="red")
+        return Text(format_percent(value), style="dim")
+
+    def _spread_text(self, row) -> str:
+        if row.spread is None:
+            return "--"
+        return f"{row.spread_pct:.3f}%"
+
+    def _velocity_text(self, value: float) -> str:
+        if value <= 0:
+            return "--"
+        return format_volume(value).replace("$", "")
+
+    def _age_text(self, seconds: float) -> str:
+        if seconds < 1:
+            return "<1s"
+        if seconds < 60:
+            return f"{seconds:.0f}s"
+        return f"{seconds / 60:.0f}m"
+
+    def _alert_text(self, row, now: float) -> str:
+        if now - row.high_low_flash_at < SCREENER_HIGH_LOW_FLASH_SECONDS:
+            return "NEW HIGH" if row.high_low_flash_direction == "high" else "NEW LOW"
+        alerts = []
+        if row.rvol >= SCREENER_RVOL_ALERT:
+            alerts.append("RVOL")
+        if abs(row.percent_change(300)) >= SCREENER_MOVE_ALERT_PCT:
+            alerts.append("MOVE")
+        if row.hourly_rvol >= SCREENER_VOLUME_SPIKE_ALERT:
+            alerts.append("VOL")
+        return ",".join(alerts[:2])
+
+    def _alert_style(self, alert: str) -> str:
+        if not alert:
+            return ""
+        if "MOVE" in alert:
+            return "bold yellow"
+        return "bold cyan"
 
 
 class MarketScreen(Screen):
@@ -588,6 +737,7 @@ class TapewormApp(App):
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.screener = ScreenerStore()
         self.screener_sort = "volume_24h"
+        self.screener_pins: set[str] = {"BTC-USD", "ETH-USD", "SOL-USD"}
         self.latest_prices: dict[str, float] = {}
         self.books: dict[str, OrderBook] = {}
         self.trades: dict[str, TradeTracker] = {}
@@ -740,8 +890,10 @@ class TapewormApp(App):
             volume_24h = float(message["volume_24h"]) * price if message.get("volume_24h") is not None else None
         except (TypeError, ValueError):
             volume_24h = None
+        best_bid = optional_float(message.get("best_bid"))
+        best_ask = optional_float(message.get("best_ask"))
         self.latest_prices[symbol] = price
-        self.screener.update_price(symbol, price, volume_24h)
+        self.screener.update_price(symbol, price, volume_24h, best_bid, best_ask)
 
     def handle_market(self, message: object) -> None:
         if not isinstance(message, dict):
@@ -852,6 +1004,16 @@ class TapewormApp(App):
     def toggle_screener_sort(self) -> None:
         self.screener_sort = "rvol" if self.screener_sort == "volume_24h" else "volume_24h"
 
+    def set_screener_sort(self, sort_by: str) -> None:
+        if sort_by in SCREENER_SORT_LABELS:
+            self.screener_sort = sort_by
+
+    def toggle_screener_pin(self, symbol: str) -> None:
+        if symbol in self.screener_pins:
+            self.screener_pins.remove(symbol)
+        else:
+            self.screener_pins.add(symbol)
+
     def action_go_back(self) -> None:
         if len(self._screen_stack) > 1:
             self.pop_screen()
@@ -883,3 +1045,12 @@ def parse_trade_time(value: object) -> datetime:
     if parsed.tzinfo is None:
         return parsed
     return parsed.astimezone().replace(tzinfo=None)
+
+
+def optional_float(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
