@@ -288,6 +288,11 @@ class ScreenerRow:
     hourly_rvol: float = 0
     daily_rvol: float = 0
     hour_change: float = 0
+    rvol_snapshot_at: float = 0
+    rvol_avg_daily_volume: float = 0
+    rvol_bootstrap_hour_volume: float = 0
+    rvol_bootstrap_previous_hour_volume: float = 0
+    rvol_bootstrap_day_volume: float = 0
     previous_price: float | None = None
     last_price_changed_at: float = 0
     last_updated_at: float = 0
@@ -301,6 +306,7 @@ class ScreenerRow:
     price_history: deque[tuple[float, float]] = field(default_factory=deque)
     tick_times: deque[float] = field(default_factory=deque)
     volume_samples: deque[tuple[float, float]] = field(default_factory=deque)
+    rvol_volume_deltas: deque[tuple[float, float]] = field(default_factory=deque)
 
     @property
     def price_direction(self) -> str:
@@ -390,6 +396,59 @@ class ScreenerRow:
         volume_delta = volume_24h - previous_volume
         if elapsed > 0 and volume_delta > 0:
             self.notional_velocity = volume_delta / elapsed
+            self.rvol_volume_deltas.append((now, volume_delta))
+
+    def current_hour_volume(self, now: float | None = None) -> float:
+        now = time.monotonic() if now is None else now
+        if not self.rvol_snapshot_at or not self.rvol_avg_daily_volume:
+            return 0
+        if now - self.rvol_snapshot_at < 3600:
+            return self.rvol_bootstrap_hour_volume + self._live_volume_since(self.rvol_snapshot_at, now)
+        return self._live_volume_window(now - 3600, now)
+
+    def previous_hour_volume(self, now: float | None = None) -> float:
+        now = time.monotonic() if now is None else now
+        if not self.rvol_snapshot_at or not self.rvol_avg_daily_volume:
+            return 0
+        if now - self.rvol_snapshot_at < 7200:
+            return self.rvol_bootstrap_previous_hour_volume
+        return self._live_volume_window(now - 7200, now - 3600)
+
+    def current_day_volume(self, now: float | None = None) -> float:
+        now = time.monotonic() if now is None else now
+        if not self.rvol_snapshot_at or not self.rvol_avg_daily_volume:
+            return 0
+        if now - self.rvol_snapshot_at < 86400:
+            return self.rvol_bootstrap_day_volume + self._live_volume_since(self.rvol_snapshot_at, now)
+        return self._live_volume_window(now - 86400, now)
+
+    def live_rvol_metrics(self, now: float | None = None) -> tuple[float, float, float]:
+        now = time.monotonic() if now is None else now
+        if not self.rvol_snapshot_at or not self.rvol_avg_daily_volume:
+            return self.rvol, self.hourly_rvol, self.daily_rvol
+
+        avg_daily_volume = self.rvol_avg_daily_volume
+        daily_volume = self.current_day_volume(now)
+        hourly_volume = self.current_hour_volume(now)
+        previous_hour_volume = self.previous_hour_volume(now)
+        daily_rvol = daily_volume / avg_daily_volume if avg_daily_volume > 0 else 0
+        hourly_rvol = hourly_volume / (avg_daily_volume / 24) if avg_daily_volume > 0 else 0
+        hour_change = hourly_volume / previous_hour_volume if previous_hour_volume > 0 else 1
+        weighted_rvol = daily_rvol * 0.5 + hourly_rvol * 0.3 + hour_change * 0.2
+        return weighted_rvol, hourly_rvol, daily_rvol
+
+    def _live_volume_since(self, start: float, now: float) -> float:
+        return self._live_volume_window(start, now)
+
+    def _live_volume_window(self, start: float, end: float) -> float:
+        total = 0.0
+        for sample_at, delta in self.rvol_volume_deltas:
+            if sample_at < start:
+                continue
+            if sample_at > end:
+                continue
+            total += delta
+        return total
 
     def _prune(self, now: float) -> None:
         price_cutoff = now - 3600
@@ -401,6 +460,9 @@ class ScreenerRow:
         volume_cutoff = now - 60
         while len(self.volume_samples) > 2 and self.volume_samples[0][0] < volume_cutoff:
             self.volume_samples.popleft()
+        rvol_cutoff = now - 90000
+        while self.rvol_volume_deltas and self.rvol_volume_deltas[0][0] < rvol_cutoff:
+            self.rvol_volume_deltas.popleft()
 
 
 class ScreenerStore:
@@ -421,6 +483,7 @@ class ScreenerStore:
         row.update_quote(best_bid, best_ask)
 
     def update_rvol(self, metrics: Iterable[dict]) -> None:
+        now = time.monotonic()
         for item in metrics:
             symbol = item["Symbol"]
             row = self.rows.setdefault(symbol, ScreenerRow(symbol=symbol))
@@ -430,6 +493,11 @@ class ScreenerStore:
             row.hourly_rvol = float(item.get("HourlyRVol", 0))
             row.daily_rvol = float(item.get("DailyRVol", 0))
             row.hour_change = float(item.get("HourChange", 0))
+            row.rvol_snapshot_at = now
+            row.rvol_avg_daily_volume = float(item.get("AvgDailyVolume", 0))
+            row.rvol_bootstrap_hour_volume = float(item.get("CurrentHourVolume", 0))
+            row.rvol_bootstrap_previous_hour_volume = float(item.get("PreviousHourVolume", 0))
+            row.rvol_bootstrap_day_volume = float(item.get("CurrentDayVolume", 0))
 
     def top(
         self,

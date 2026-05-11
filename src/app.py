@@ -90,20 +90,20 @@ class ScreenerScreen(Screen):
         table = DataTable(id="screener-table", cursor_type="row", zebra_stripes=True)
         table.add_column("Pin", key="pin", width=3)
         table.add_column("Symbol", key="symbol", width=10)
-        table.add_column("Last", key="price", width=14)
+        table.add_column("Last Price", key="price", width=13)
         table.add_column("1m", key="change_1m", width=8)
         table.add_column("5m", key="change_5m", width=8)
         table.add_column("15m", key="change_15m", width=8)
         table.add_column("1h", key="change_1h", width=8)
-        table.add_column("Sprd", key="spread", width=7)
+        table.add_column("Spread", key="spread", width=8)
         table.add_column("$/s", key="velocity", width=8)
-        table.add_column("24h Vol", key="volume_24h", width=9)
+        table.add_column("24h Vol", key="volume_24h", width=10)
         table.add_column("RVol", key="rvol", width=6)
-        table.add_column("Hr", key="hourly", width=6)
+        table.add_column("Hourly", key="hourly", width=6)
         table.add_column("Ticks", key="ticks", width=5)
-        table.add_column("Alert", key="alert", width=12)
-        table.add_column("Age", key="age", width=5)
+        table.add_column("Alert", key="alert", width=10)
         table.add_column("Tick", key="direction", width=5)
+        table.add_column("Age", key="age", width=5)
         yield table
         yield Footer()
 
@@ -142,6 +142,7 @@ class ScreenerScreen(Screen):
             alert_style = high_low_style or self._alert_style(alert)
             price_cell = Text(format_price(row.price), style=style) if style else format_price(row.price)
             direction_cell = Text(direction, style=style) if style else direction
+            rvol_value, hourly_rvol_value, _daily_rvol_value = row.live_rvol_metrics(now)
             table.add_row(
                 "*" if row.symbol in app.screener_pins else "",
                 row.symbol,
@@ -153,17 +154,18 @@ class ScreenerScreen(Screen):
                 self._spread_text(row),
                 self._velocity_text(row.notional_velocity),
                 format_volume(row.volume_24h),
-                f"{row.rvol:.2f}",
-                f"{row.hourly_rvol:.2f}",
+                self._rvol_text(rvol_value, row),
+                self._rvol_text(hourly_rvol_value, row),
                 str(row.tick_count),
                 Text(alert, style=alert_style) if alert_style else alert,
-                self._age_text(row.age(now)),
                 direction_cell,
+                self._age_text(row.age(now)),
                 key=row.symbol,
             )
 
+        pins = ", ".join(sorted(app.screener_pins)) or "-"
         self.query_one("#screener-status", Static).update(
-            f"Sort: {source} | pins: {','.join(sorted(app.screener_pins))} | prices: {len(app.latest_prices)} | "
+            f"Sort: {source} | pins: {pins} | prices: {len(app.latest_prices)} | "
             f"RVol rows: {app.rvol_count} | 1-9/0 sort | w pin | Enter open | r refresh | q shutdown"
         )
 
@@ -268,6 +270,11 @@ class ScreenerScreen(Screen):
         if value <= 0:
             return "--"
         return format_volume(value).replace("$", "")
+
+    def _rvol_text(self, value: float, row: ScreenerRow) -> str:
+        if not row.rvol_snapshot_at:
+            return "--"
+        return f"{value:.2f}"
 
     def _age_text(self, seconds: float) -> str:
         if seconds < 1:
@@ -684,6 +691,12 @@ class TapewormApp(App):
         margin: 1;
     }
 
+    #screener-table {
+        border: solid #3a4050;
+        background: #141821;
+        color: #eeeeee;
+    }
+
     #screener-status, #time-sales-status {
         dock: bottom;
         height: 1;
@@ -766,6 +779,7 @@ class TapewormApp(App):
         self.rvol_count = 0
         self._started = False
         self._direct_feeds = False
+        self._rvol_started = False
 
     def compose(self) -> ComposeResult:
         return
@@ -788,6 +802,8 @@ class TapewormApp(App):
         if self._started:
             return
         self._started = True
+        if self.mode in {"all", "screener"}:
+            self.start_rvol_feed()
         if self.source in {"hub", "auto"} and self.mode != "all":
             threading.Thread(target=self._run_hub_client_or_fallback, daemon=True).start()
             return
@@ -798,9 +814,14 @@ class TapewormApp(App):
         self._direct_feeds = True
         if self.mode in {"all", "screener"}:
             threading.Thread(target=self._run_screener_ticker_feed, daemon=True).start()
-            threading.Thread(target=self._run_rvol_feed, daemon=True).start()
         if self.mode in {"all", "l2", "ts"}:
             self.track_market_symbol(self.symbol)
+
+    def start_rvol_feed(self) -> None:
+        if self._rvol_started:
+            return
+        self._rvol_started = True
+        threading.Thread(target=self._run_rvol_feed, daemon=True).start()
 
     def _run_hub_client_or_fallback(self) -> None:
         try:

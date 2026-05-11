@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta
 
+from src.app import TapewormApp
+import src.models as models
 from src.models import (
     MarketStats,
     OrderBook,
@@ -130,6 +132,54 @@ def test_screener_store_tracks_price_direction_and_sorts_by_selected_metric():
     rvol_rows = store.top(limit=2, sort_by="rvol")
     assert [row.symbol for row in rvol_rows] == ["ETH-USD", "BTC-USD"]
     assert [row.symbol for row in store.live_prices(limit=3, sort_by="rvol")] == ["ETH-USD", "BTC-USD", "DOGE-USD"]
+
+
+def test_screener_store_marks_rvol_snapshots_and_app_shows_placeholder_until_one_arrives():
+    store = ScreenerStore()
+    store.update_price("BTC-USD", 100)
+    row = store.rows["BTC-USD"]
+    app = TapewormApp(mode="screener")
+
+    assert app._rvol_text(row.rvol, row) == "--"
+
+    store.update_rvol([{"Symbol": "BTC-USD", "RVol": 2, "HourlyRVol": 3, "DailyRVol": 4, "HourChange": 5}])
+    row = store.rows["BTC-USD"]
+
+    assert row.rvol_snapshot_at > 0
+    assert app._rvol_text(row.rvol, row) == "2.00"
+    assert app._rvol_text(row.hourly_rvol, row) == "3.00"
+
+
+def test_screener_row_rolls_rvol_forward_from_live_volume_deltas(monkeypatch):
+    monkeypatch.setattr(models.time, "monotonic", lambda: 1000.0)
+    store = ScreenerStore()
+    store.update_rvol(
+        [
+            {
+                "Symbol": "BTC-USD",
+                "RVol": 1.2,
+                "HourlyRVol": 1.0,
+                "DailyRVol": 1.0,
+                "HourChange": 2.0,
+                "AvgDailyVolume": 2400,
+                "CurrentHourVolume": 100,
+                "PreviousHourVolume": 50,
+                "CurrentDayVolume": 2400,
+            }
+        ]
+    )
+
+    store.update_price("BTC-USD", 100, volume_24h=2400, now=1000.0)
+    store.update_price("BTC-USD", 101, volume_24h=2420, now=1060.0)
+
+    row = store.rows["BTC-USD"]
+    rvol, hourly_rvol, daily_rvol = row.live_rvol_metrics(1060.0)
+
+    assert row.current_hour_volume(1060.0) == 120
+    assert row.current_day_volume(1060.0) == 2420
+    assert round(rvol, 3) == 1.344
+    assert round(hourly_rvol, 2) == 1.20
+    assert round(daily_rvol, 3) == 1.008
 
 
 def test_screener_row_tracks_momentum_spread_velocity_and_high_low():

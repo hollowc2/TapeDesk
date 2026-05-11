@@ -121,9 +121,14 @@ def fetch_rvol_data() -> list[dict]:
         try:
             current_hour_volume = sum(float(candle[5]) for candle in candles[:12])
             prev_hour_volume = sum(float(candle[5]) for candle in candles[12:24])
+            historical_day_volume = sum(float(candle[5]) for candle in candles[:288])
             volume_24h = float(stats.get("volume", 0))
             volume_30d = float(stats.get("volume_30day", 0))
             last_price = float(stats.get("last", 0))
+            if volume_24h <= 0:
+                volume_24h = historical_day_volume
+            if volume_30d <= 0 and historical_day_volume > 0:
+                volume_30d = historical_day_volume * 30
             if volume_24h <= 0 or volume_30d <= 0:
                 continue
 
@@ -145,6 +150,10 @@ def fetch_rvol_data() -> list[dict]:
                     "HourlyRVol": round(hourly_rvol, 2),
                     "DailyRVol": round(daily_rvol, 2),
                     "HourChange": round(hour_change, 2),
+                    "AvgDailyVolume": round(avg_daily_volume, 8),
+                    "CurrentHourVolume": round(current_hour_volume, 8),
+                    "PreviousHourVolume": round(prev_hour_volume, 8),
+                    "CurrentDayVolume": round(volume_24h, 8),
                 }
             )
     return crypto_data
