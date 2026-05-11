@@ -55,6 +55,8 @@ def run_tool(args: argparse.Namespace) -> int:
         hub_url=args.hub_url,
         time_sales_min_notional=getattr(args, "min_notional", 0),
         time_sales_min_size=getattr(args, "min_qty", None),
+        level2_audio_enabled=getattr(args, "audio", False),
+        level2_audio_min_size=getattr(args, "audio_min_qty", 0.0001),
     ).run()
     return 0
 
@@ -106,6 +108,14 @@ def build_parser() -> argparse.ArgumentParser:
         tool_parser.add_argument("--asset", default="BTC-USD")
         tool_parser.add_argument("--source", choices=["auto", "hub", "direct"], default="auto")
         tool_parser.add_argument("--hub-url", default=DEFAULT_HUB_URL)
+        if tool_name == "l2":
+            tool_parser.add_argument("--audio", action="store_true", help="Start level 2 trade audio enabled")
+            tool_parser.add_argument(
+                "--audio-min-qty",
+                type=float,
+                default=0.0001,
+                help="Only play level 2 audio for trades at least this base-asset quantity",
+            )
         if tool_name == "ts":
             tool_parser.add_argument(
                 "--min-notional",

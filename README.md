@@ -87,10 +87,11 @@ Tool commands default to `--source auto`: they try the local hub first, then fal
 ## Tools
 
 - `screener`: live USD market screener with price, volume, and RVol data.
-- `l2`: level 2 order book for one asset.
+- `l2`: level 2 order book for one asset. Press `a` to toggle trade audio and `[`/`]` to adjust the base-size audio filter. Audio starts off unless `--audio` is passed.
 - `ts`: time-and-sales tape for one asset.
 
 Assets can be passed as full Coinbase product IDs such as `BTC-USD` or as shorthand tickers such as `BTC`.
+Level 2 audio can be started with `--audio`; `--audio-min-qty` sets the initial base-asset quantity threshold.
 Time-and-sales filters are optional. `--min-notional` filters by USD trade value, which stays comparable across high-price and low-price assets, and `--min-qty` filters by the selected asset's base quantity.
 
 ## Development Checks

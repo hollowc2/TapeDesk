@@ -4,6 +4,14 @@ from src.shared import normalize_asset
 from src.tmux import build_hub_command, build_tool_commands, build_tool_rows, current_tmux_session_name, launch_tmux
 
 
+class FakeAudioPlayer:
+    def __init__(self):
+        self.sides: list[str] = []
+
+    def play(self, side: str) -> None:
+        self.sides.append(side)
+
+
 def test_normalize_asset_defaults_to_usd_pair():
     assert normalize_asset("btc") == "BTC-USD"
     assert normalize_asset("eth-usd") == "ETH-USD"
@@ -24,6 +32,14 @@ def test_cli_parses_time_sales_filters():
     assert args.asset == "XRP"
     assert args.min_notional == 25
     assert args.min_qty == 100
+
+
+def test_cli_parses_level2_audio_options():
+    args = build_parser().parse_args(["tool", "l2", "--asset", "BTC", "--audio", "--audio-min-qty", "0.01"])
+
+    assert args.tool_name == "l2"
+    assert args.audio is True
+    assert args.audio_min_qty == 0.01
 
 
 def test_tmux_commands_exclude_hub_and_include_selected_asset_tools():
@@ -77,6 +93,48 @@ def test_shutdown_workspace_kills_tmux_session(monkeypatch):
     app.action_shutdown_workspace()
 
     assert killed == ["demo"]
+
+
+def test_level2_audio_disabled_does_not_play():
+    player = FakeAudioPlayer()
+    app = TapewormApp(mode="l2", level2_audio_enabled=False, level2_audio_player=player)
+
+    app.handle_market({"type": "match", "product_id": "BTC-USD", "price": "100", "size": "1", "side": "buy"})
+
+    assert player.sides == []
+
+
+def test_level2_audio_plays_buy_and_sell_for_qualifying_trades():
+    player = FakeAudioPlayer()
+    app = TapewormApp(mode="l2", level2_audio_enabled=True, level2_audio_min_size=0.01, level2_audio_player=player)
+
+    app.handle_market({"type": "match", "product_id": "BTC-USD", "price": "100", "size": "0.01", "side": "buy"})
+    app.handle_market({"type": "match", "product_id": "BTC-USD", "price": "99", "size": "0.02", "side": "sell"})
+
+    assert player.sides == ["buy", "sell"]
+
+
+def test_level2_audio_ignores_trades_below_filter():
+    player = FakeAudioPlayer()
+    app = TapewormApp(mode="l2", level2_audio_enabled=True, level2_audio_min_size=0.1, level2_audio_player=player)
+
+    app.handle_market({"type": "match", "product_id": "BTC-USD", "price": "100", "size": "0.099", "side": "buy"})
+
+    assert player.sides == []
+
+
+def test_level2_audio_filter_actions_clamp_to_steps():
+    app = TapewormApp(mode="l2")
+
+    app.decrease_level2_audio_filter()
+    assert app.level2_audio_min_size == 0.0001
+
+    app.increase_level2_audio_filter()
+    assert app.level2_audio_min_size == 0.001
+
+    app.level2_audio_min_size = 1
+    app.increase_level2_audio_filter()
+    assert app.level2_audio_min_size == 1
 
 
 def test_launch_tmux_uses_seventy_thirty_splits_for_each_row():

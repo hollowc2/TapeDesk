@@ -6,6 +6,7 @@ import logging
 import queue
 import threading
 import time
+from bisect import bisect_left, bisect_right
 from datetime import datetime
 from itertools import accumulate
 
@@ -27,6 +28,7 @@ from .coinbase import (
     websocket_loop,
 )
 from .shared import normalize_asset
+from .audio import TradeClickPlayer
 from .tmux import current_tmux_session_name, kill_tmux_session
 from .models import (
     MarketStats,
@@ -45,6 +47,7 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_HUB_URL = "ws://127.0.0.1:8765"
+L2_AUDIO_FILTER_SIZES = [0.0001, 0.001, 0.01, 0.1, 1]
 SCREENER_FLASH_SECONDS = 0.75
 SCREENER_HIGH_LOW_FLASH_SECONDS = 1.5
 SCREENER_RVOL_ALERT = 3
@@ -67,9 +70,9 @@ SCREENER_SORT_LABELS = {
 class ScreenerScreen(Screen):
     BINDINGS = [
         Binding("enter", "open_selected", "Open Book"),
-        Binding("o", "open_btc", "BTC Book"),
-        Binding("r", "refresh_rvol", "Refresh RVol"),
-        Binding("v", "toggle_sort", "Vol/RVol"),
+        Binding("o", "open_btc", "BTC Book", show=False),
+        Binding("r", "refresh_rvol", "Refresh RVol", show=False),
+        Binding("v", "toggle_sort", "Vol/RVol", show=False),
         Binding("w", "toggle_watch", "Pin"),
         Binding("1", "sort_volume", "Vol"),
         Binding("2", "sort_rvol", "RVol"),
@@ -166,7 +169,7 @@ class ScreenerScreen(Screen):
         pins = ", ".join(sorted(app.screener_pins)) or "-"
         self.query_one("#screener-status", Static).update(
             f"Sort: {source} | pins: {pins} | prices: {len(app.latest_prices)} | "
-            f"RVol rows: {app.rvol_count} | 1-9/0 sort | w pin | Enter open | r refresh | q shutdown"
+            f"RVol rows: {app.rvol_count} | 1-9/0 sort | w pin | Enter open | q shutdown"
         )
 
         if selected:
@@ -589,6 +592,9 @@ class L2Screen(MarketScreen):
     BINDINGS = [
         Binding("q", "quit", "Quit"),
         Binding("c", "toggle_compact", "Compact"),
+        Binding("a", "toggle_audio", "Audio"),
+        Binding("[", "audio_filter_down", "Filter -", priority=True),
+        Binding("]", "audio_filter_up", "Filter +", priority=True),
     ]
 
     def __init__(self, symbol: str):
@@ -607,8 +613,24 @@ class L2Screen(MarketScreen):
         stats = app.market_stats[self.symbol]
         self.query_one("#book-panel", Static).update(self.render_book(book, stats))
 
+    def render_book(self, book: OrderBook, stats: MarketStats) -> str:
+        audio = self.app.level2_audio_status_label(self.symbol)
+        return f"{audio}\n{super().render_book(book, stats)}"
+
     def action_toggle_compact(self) -> None:
         self.compact = not self.compact
+        self.refresh_market()
+
+    def action_toggle_audio(self) -> None:
+        self.app.toggle_level2_audio()
+        self.refresh_market()
+
+    def action_audio_filter_down(self) -> None:
+        self.app.decrease_level2_audio_filter()
+        self.refresh_market()
+
+    def action_audio_filter_up(self) -> None:
+        self.app.increase_level2_audio_filter()
         self.refresh_market()
 
     def apply_compact_layout(self) -> None:
@@ -756,6 +778,9 @@ class TapewormApp(App):
         hub_url: str = DEFAULT_HUB_URL,
         time_sales_min_notional: float = 0,
         time_sales_min_size: float | None = None,
+        level2_audio_enabled: bool = False,
+        level2_audio_min_size: float = L2_AUDIO_FILTER_SIZES[0],
+        level2_audio_player: TradeClickPlayer | None = None,
     ):
         super().__init__()
         self.mode = mode
@@ -764,6 +789,9 @@ class TapewormApp(App):
         self.hub_url = hub_url
         self.time_sales_min_notional = max(0, time_sales_min_notional)
         self.time_sales_min_size = max(0, time_sales_min_size) if time_sales_min_size is not None else None
+        self.level2_audio_enabled = level2_audio_enabled
+        self.level2_audio_min_size = max(0, level2_audio_min_size)
+        self.level2_audio_player = level2_audio_player or TradeClickPlayer()
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.screener = ScreenerStore()
         self.screener_sort = "volume_24h"
@@ -957,6 +985,7 @@ class TapewormApp(App):
             self.market_stats[symbol].add_trade(trade.price, trade.size)
             self.latest_prices[symbol] = trade.price
             self.screener.update_price(symbol, trade.price)
+            self.play_level2_trade_audio(trade)
         elif msg_type == "ticker":
             self.handle_ticker(message)
             self.books[symbol].apply_ticker(message)
@@ -1008,6 +1037,31 @@ class TapewormApp(App):
             base = symbol.split("-", 1)[0]
             parts.append(f">= {format_quantity(self.time_sales_min_size)} {base}")
         return ", ".join(parts) if parts else "All prints"
+
+    def level2_audio_status_label(self, symbol: str) -> str:
+        base = symbol.split("-", 1)[0]
+        state = "[green]ON[/green]" if self.level2_audio_enabled else "[red]OFF[/red]"
+        return f"Audio {state} | Filter >= {format_quantity(self.level2_audio_min_size)} {base} | a toggle | brackets adjust"
+
+    def toggle_level2_audio(self) -> None:
+        self.level2_audio_enabled = not self.level2_audio_enabled
+
+    def decrease_level2_audio_filter(self) -> None:
+        index = bisect_left(L2_AUDIO_FILTER_SIZES, self.level2_audio_min_size) - 1
+        if index >= 0:
+            self.level2_audio_min_size = L2_AUDIO_FILTER_SIZES[index]
+
+    def increase_level2_audio_filter(self) -> None:
+        index = bisect_right(L2_AUDIO_FILTER_SIZES, self.level2_audio_min_size)
+        if index < len(L2_AUDIO_FILTER_SIZES):
+            self.level2_audio_min_size = L2_AUDIO_FILTER_SIZES[index]
+
+    def play_level2_trade_audio(self, trade: Trade) -> None:
+        if self.mode != "l2" or not self.level2_audio_enabled:
+            return
+        if trade.size < self.level2_audio_min_size:
+            return
+        self.level2_audio_player.play(trade.side)
 
     def trade_side(self, symbol: str, price: float, message: dict) -> str:
         side = str(message.get("side", "")).lower()
