@@ -56,7 +56,7 @@ def format_quantity(quantity: float) -> str:
         return f"{sign}{quantity_abs / 1_000:.2f}K"
     if quantity_abs >= 1:
         return f"{quantity:.3f}"
-    return f"{quantity:.6f}".rstrip("0").rstrip(".")
+    return f"{quantity:.8f}".rstrip("0").rstrip(".")
 
 
 @dataclass

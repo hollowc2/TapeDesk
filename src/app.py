@@ -47,7 +47,7 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_HUB_URL = "ws://127.0.0.1:8765"
-L2_AUDIO_FILTER_SIZES = [0.0001, 0.001, 0.01, 0.1, 1]
+TRADE_AUDIO_FILTER_SIZES = [0.00000001, 0.0000001, 0.000001, 0.00001, 0.0001, 0.001, 0.01, 0.1, 1]
 SCREENER_FLASH_SECONDS = 0.75
 SCREENER_HIGH_LOW_FLASH_SECONDS = 1.5
 SCREENER_RVOL_ALERT = 3
@@ -311,9 +311,6 @@ class MarketScreen(Screen):
         Binding("escape", "app.go_back", "Back"),
         Binding("b", "app.go_back", "Back"),
         Binding("c", "toggle_compact", "Compact"),
-        Binding("a", "toggle_audio", "Audio"),
-        Binding("[", "audio_filter_down", "Filter -", priority=True),
-        Binding("]", "audio_filter_up", "Filter +", priority=True),
     ]
 
     symbol = reactive("BTC-USD")
@@ -359,18 +356,6 @@ class MarketScreen(Screen):
     def action_toggle_compact(self) -> None:
         self.compact = not self.compact
         self.apply_compact_layout()
-        self.refresh_market()
-
-    def action_toggle_audio(self) -> None:
-        self.app.toggle_level2_audio()
-        self.refresh_market()
-
-    def action_audio_filter_down(self) -> None:
-        self.app.decrease_level2_audio_filter()
-        self.refresh_market()
-
-    def action_audio_filter_up(self) -> None:
-        self.app.increase_level2_audio_filter()
         self.refresh_market()
 
     def apply_compact_layout(self) -> None:
@@ -511,7 +496,6 @@ class MarketScreen(Screen):
             else:
                 ask_text = " " * right_width
             rows.append(f"{bid_text} | {ask_text}")
-        rows.extend(["-" * row_width, self.app.level2_audio_status_label(self.symbol)])
         return "\n".join(rows)
 
     def _update_book_flashes(self, bids: list[tuple[float, float]], asks: list[tuple[float, float]]) -> None:
@@ -608,9 +592,6 @@ class L2Screen(MarketScreen):
     BINDINGS = [
         Binding("q", "quit", "Quit"),
         Binding("c", "toggle_compact", "Compact"),
-        Binding("a", "toggle_audio", "Audio"),
-        Binding("[", "audio_filter_down", "Filter -", priority=True),
-        Binding("]", "audio_filter_up", "Filter +", priority=True),
     ]
 
     def __init__(self, symbol: str):
@@ -640,6 +621,9 @@ class L2Screen(MarketScreen):
 class TimeSalesScreen(Screen):
     BINDINGS = [
         Binding("q", "quit", "Quit"),
+        Binding("a", "toggle_audio", "Audio"),
+        Binding("[", "audio_filter_down", "Filter -", priority=True),
+        Binding("]", "audio_filter_up", "Filter +", priority=True),
         Binding("s", "ignore_screener", show=False, priority=True),
     ]
 
@@ -684,9 +668,23 @@ class TimeSalesScreen(Screen):
             )
 
         filter_label = app.time_sales_filter_label(self.symbol)
+        audio_label = app.time_sales_audio_status_label(self.symbol)
         self.query_one("#time-sales-status", Static).update(
-            f"{self.symbol} | Prints: {len(trades.recent)} | TPS: {tps.current} | Filter: {filter_label}"
+            f"{self.symbol} | Prints: {len(trades.recent)} | TPS: {tps.current} | "
+            f"Filter: {filter_label} | {audio_label}"
         )
+
+    def action_toggle_audio(self) -> None:
+        self.app.toggle_time_sales_audio()
+        self.refresh_time_sales()
+
+    def action_audio_filter_down(self) -> None:
+        self.app.decrease_time_sales_audio_filter()
+        self.refresh_time_sales()
+
+    def action_audio_filter_up(self) -> None:
+        self.app.increase_time_sales_audio_filter()
+        self.refresh_time_sales()
 
     def action_ignore_screener(self) -> None:
         return
@@ -778,9 +776,9 @@ class TapewormApp(App):
         hub_url: str = DEFAULT_HUB_URL,
         time_sales_min_notional: float = 0,
         time_sales_min_size: float | None = None,
-        level2_audio_enabled: bool = False,
-        level2_audio_min_size: float = L2_AUDIO_FILTER_SIZES[0],
-        level2_audio_player: TradeClickPlayer | None = None,
+        time_sales_audio_enabled: bool = False,
+        time_sales_audio_min_size: float = TRADE_AUDIO_FILTER_SIZES[0],
+        time_sales_audio_player: TradeClickPlayer | None = None,
     ):
         super().__init__()
         self.mode = mode
@@ -789,9 +787,9 @@ class TapewormApp(App):
         self.hub_url = hub_url
         self.time_sales_min_notional = max(0, time_sales_min_notional)
         self.time_sales_min_size = max(0, time_sales_min_size) if time_sales_min_size is not None else None
-        self.level2_audio_enabled = level2_audio_enabled
-        self.level2_audio_min_size = max(0, level2_audio_min_size)
-        self.level2_audio_player = level2_audio_player or TradeClickPlayer()
+        self.time_sales_audio_enabled = time_sales_audio_enabled
+        self.time_sales_audio_min_size = max(0, time_sales_audio_min_size)
+        self.time_sales_audio_player = time_sales_audio_player or TradeClickPlayer()
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.screener = ScreenerStore()
         self.screener_sort = "volume_24h"
@@ -990,7 +988,7 @@ class TapewormApp(App):
             self.market_stats[symbol].add_trade(trade.price, trade.size)
             self.latest_prices[symbol] = trade.price
             self.screener.update_price(symbol, trade.price)
-            self.play_level2_trade_audio(trade)
+            self.play_time_sales_trade_audio(trade)
         elif msg_type == "ticker":
             self.handle_ticker(message)
             self.books[symbol].apply_ticker(message)
@@ -1046,30 +1044,42 @@ class TapewormApp(App):
     def status_suffix(self) -> str:
         return f"{self.status_message} | " if self.status_message else ""
 
-    def level2_audio_status_label(self, symbol: str) -> str:
+    def time_sales_audio_status_label(self, symbol: str) -> str:
         base = symbol.split("-", 1)[0]
-        state = "[green]ON[/green]" if self.level2_audio_enabled else "[red]OFF[/red]"
-        return f"Audio {state} | Filter >= {format_quantity(self.level2_audio_min_size)} {base} | a toggle | brackets adjust"
+        state = "[green]ON[/green]" if self.time_sales_audio_enabled else "[red]OFF[/red]"
+        return f"Audio {state} >= {format_quantity(self.time_sales_audio_min_size)} {base}"
 
-    def toggle_level2_audio(self) -> None:
-        self.level2_audio_enabled = not self.level2_audio_enabled
+    def toggle_time_sales_audio(self) -> None:
+        self.time_sales_audio_enabled = not self.time_sales_audio_enabled
 
-    def decrease_level2_audio_filter(self) -> None:
-        index = bisect_left(L2_AUDIO_FILTER_SIZES, self.level2_audio_min_size) - 1
+    def decrease_time_sales_audio_filter(self) -> None:
+        index = bisect_left(TRADE_AUDIO_FILTER_SIZES, self.time_sales_audio_min_size) - 1
         if index >= 0:
-            self.level2_audio_min_size = L2_AUDIO_FILTER_SIZES[index]
+            self.set_time_sales_size_filter(TRADE_AUDIO_FILTER_SIZES[index])
+        else:
+            self.set_time_sales_size_filter(self.time_sales_audio_min_size)
 
-    def increase_level2_audio_filter(self) -> None:
-        index = bisect_right(L2_AUDIO_FILTER_SIZES, self.level2_audio_min_size)
-        if index < len(L2_AUDIO_FILTER_SIZES):
-            self.level2_audio_min_size = L2_AUDIO_FILTER_SIZES[index]
+    def increase_time_sales_audio_filter(self) -> None:
+        index = bisect_right(TRADE_AUDIO_FILTER_SIZES, self.time_sales_audio_min_size)
+        if index < len(TRADE_AUDIO_FILTER_SIZES):
+            self.set_time_sales_size_filter(TRADE_AUDIO_FILTER_SIZES[index])
+        else:
+            self.set_time_sales_size_filter(self.time_sales_audio_min_size)
 
-    def play_level2_trade_audio(self, trade: Trade) -> None:
-        if self.mode not in {"all", "l2"} or not self.level2_audio_enabled:
+    def set_time_sales_size_filter(self, min_size: float) -> None:
+        self.time_sales_audio_min_size = min_size
+        self.time_sales_min_size = min_size
+        for tracker in self.trades.values():
+            tracker.min_size = min_size
+            tracker.recent = [trade for trade in tracker.recent if trade.size >= min_size]
+            tracker.top = [trade for trade in tracker.top if trade.size >= min_size]
+
+    def play_time_sales_trade_audio(self, trade: Trade) -> None:
+        if self.mode != "ts" or not self.time_sales_audio_enabled:
             return
-        if trade.size < self.level2_audio_min_size:
+        if trade.size < self.time_sales_audio_min_size:
             return
-        self.level2_audio_player.play(trade.side)
+        self.time_sales_audio_player.play(trade.side)
 
     def trade_side(self, symbol: str, price: float, message: dict) -> str:
         side = str(message.get("side", "")).lower()

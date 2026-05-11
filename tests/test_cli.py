@@ -1,5 +1,6 @@
 from src.app import TapewormApp
 from src.cli import build_parser
+from src.models import Trade
 from src.shared import normalize_asset
 from src.tmux import build_hub_command, build_tool_commands, build_tool_rows, current_tmux_session_name, launch_tmux
 
@@ -34,10 +35,10 @@ def test_cli_parses_time_sales_filters():
     assert args.min_qty == 100
 
 
-def test_cli_parses_level2_audio_options():
-    args = build_parser().parse_args(["tool", "l2", "--asset", "BTC", "--audio", "--audio-min-qty", "0.01"])
+def test_cli_parses_time_sales_audio_options():
+    args = build_parser().parse_args(["tool", "ts", "--asset", "BTC", "--audio", "--audio-min-qty", "0.01"])
 
-    assert args.tool_name == "l2"
+    assert args.tool_name == "ts"
     assert args.audio is True
     assert args.audio_min_qty == 0.01
 
@@ -107,18 +108,23 @@ def test_app_status_events_update_status_message_and_books():
     assert app.status_suffix() == "Hub unavailable | "
 
 
-def test_level2_audio_disabled_does_not_play():
+def test_time_sales_audio_disabled_does_not_play():
     player = FakeAudioPlayer()
-    app = TapewormApp(mode="l2", level2_audio_enabled=False, level2_audio_player=player)
+    app = TapewormApp(mode="ts", time_sales_audio_enabled=False, time_sales_audio_player=player)
 
     app.handle_market({"type": "match", "product_id": "BTC-USD", "price": "100", "size": "1", "side": "buy"})
 
     assert player.sides == []
 
 
-def test_level2_audio_plays_buy_and_sell_for_qualifying_trades():
+def test_time_sales_audio_plays_buy_and_sell_for_qualifying_trades():
     player = FakeAudioPlayer()
-    app = TapewormApp(mode="l2", level2_audio_enabled=True, level2_audio_min_size=0.01, level2_audio_player=player)
+    app = TapewormApp(
+        mode="ts",
+        time_sales_audio_enabled=True,
+        time_sales_audio_min_size=0.01,
+        time_sales_audio_player=player,
+    )
 
     app.handle_market({"type": "match", "product_id": "BTC-USD", "price": "100", "size": "0.01", "side": "buy"})
     app.handle_market({"type": "match", "product_id": "BTC-USD", "price": "99", "size": "0.02", "side": "sell"})
@@ -126,36 +132,52 @@ def test_level2_audio_plays_buy_and_sell_for_qualifying_trades():
     assert player.sides == ["buy", "sell"]
 
 
-def test_level2_audio_ignores_trades_below_filter():
+def test_time_sales_audio_ignores_trades_below_filter():
     player = FakeAudioPlayer()
-    app = TapewormApp(mode="l2", level2_audio_enabled=True, level2_audio_min_size=0.1, level2_audio_player=player)
+    app = TapewormApp(
+        mode="ts",
+        time_sales_audio_enabled=True,
+        time_sales_audio_min_size=0.1,
+        time_sales_audio_player=player,
+    )
 
     app.handle_market({"type": "match", "product_id": "BTC-USD", "price": "100", "size": "0.099", "side": "buy"})
 
     assert player.sides == []
 
 
-def test_all_mode_market_screen_audio_can_play_after_toggle():
+def test_l2_mode_does_not_play_time_sales_audio():
     player = FakeAudioPlayer()
-    app = TapewormApp(mode="all", level2_audio_enabled=True, level2_audio_min_size=0.01, level2_audio_player=player)
+    app = TapewormApp(
+        mode="l2",
+        time_sales_audio_enabled=True,
+        time_sales_audio_min_size=0.01,
+        time_sales_audio_player=player,
+    )
 
     app.handle_market({"type": "match", "product_id": "BTC-USD", "price": "100", "size": "0.02", "side": "buy"})
 
-    assert player.sides == ["buy"]
+    assert player.sides == []
 
 
-def test_level2_audio_filter_actions_clamp_to_steps():
-    app = TapewormApp(mode="l2")
+def test_time_sales_audio_filter_actions_clamp_to_steps():
+    app = TapewormApp(mode="ts")
+    app.ensure_market_state("BTC-USD")
+    app.trades["BTC-USD"].add(Trade("BTC-USD", 0.00000009, 80_000, "buy"))
+    app.trades["BTC-USD"].add(Trade("BTC-USD", 0.0000001, 80_000, "buy"))
 
-    app.decrease_level2_audio_filter()
-    assert app.level2_audio_min_size == 0.0001
+    app.decrease_time_sales_audio_filter()
+    assert app.time_sales_audio_min_size == 0.00000001
+    assert app.time_sales_min_size == 0.00000001
 
-    app.increase_level2_audio_filter()
-    assert app.level2_audio_min_size == 0.001
+    app.increase_time_sales_audio_filter()
+    assert app.time_sales_audio_min_size == 0.0000001
+    assert app.time_sales_min_size == 0.0000001
+    assert [trade.size for trade in app.trades["BTC-USD"].recent] == [0.0000001]
 
-    app.level2_audio_min_size = 1
-    app.increase_level2_audio_filter()
-    assert app.level2_audio_min_size == 1
+    app.time_sales_audio_min_size = 1
+    app.increase_time_sales_audio_filter()
+    assert app.time_sales_audio_min_size == 1
 
 
 def test_launch_tmux_uses_seventy_thirty_splits_for_each_row():

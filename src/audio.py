@@ -42,13 +42,13 @@ class TradeClickPlayer:
         try:
             import pygame
         except ImportError:
-            logger.warning("Level 2 audio unavailable: pygame is not installed")
+            logger.warning("Trade audio unavailable: pygame is not installed")
             return
 
         try:
             pygame.mixer.init()
         except pygame.error as exc:
-            logger.warning("Level 2 audio init failed: %s", exc)
+            logger.warning("Trade audio init failed: %s", exc)
             return
 
         self._buy_sound = self._load_sound(pygame, self.buy_sound_path, "buy")
@@ -57,10 +57,10 @@ class TradeClickPlayer:
     @staticmethod
     def _load_sound(pygame: object, path: Path, label: str) -> PlayableSound | None:
         if not path.exists():
-            logger.warning("Level 2 %s sound not found: %s", label, path)
+            logger.warning("Trade audio %s sound not found: %s", label, path)
             return None
         try:
             return pygame.mixer.Sound(str(path))
         except pygame.error as exc:
-            logger.warning("Level 2 %s sound load failed: %s", label, exc)
+            logger.warning("Trade audio %s sound load failed: %s", label, exc)
             return None

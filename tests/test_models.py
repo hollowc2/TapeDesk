@@ -35,6 +35,8 @@ def test_format_volume_compacts_large_usd_values():
 
 
 def test_format_quantity_compacts_asset_sizes():
+    assert format_quantity(0.00000001) == "0.00000001"
+    assert format_quantity(0.000000014) == "0.00000001"
     assert format_quantity(0.25) == "0.25"
     assert format_quantity(42) == "42.000"
     assert format_quantity(6_496) == "6.50K"
