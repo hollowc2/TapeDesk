@@ -36,13 +36,13 @@ venv/bin/python -m src orchestrator
 The orchestrator asks for assets and tools, starts a local market-data hub in a separate tmux window, and opens the tools layout in the visible window.
 Press `q` in any tool window to shut down the entire tmux workspace, including the hub and every open tool.
 
-Run individual tools:
+Run modules in isolation with direct Coinbase feeds:
 
 ```bash
 venv/bin/python -m src tool screener
 venv/bin/python -m src tool l2 --asset BTC
-venv/bin/python -m src tool ts --asset ETH
-venv/bin/python -m src tool ts --asset XRP --min-notional 25 --min-qty 100
+venv/bin/python -m src tool ts --asset BTC
+venv/bin/python -m src hub
 ```
 
 Run the standalone Time & Sales tape:
@@ -65,7 +65,9 @@ Use an existing hub instead of opening a direct Coinbase feed:
 
 ```bash
 venv/bin/python -m src hub
-venv/bin/python -m src tool ts --asset BTC --source hub
+venv/bin/python -m src tool screener --source hub --hub-url ws://127.0.0.1:8765
+venv/bin/python -m src tool l2 --asset BTC --source hub --hub-url ws://127.0.0.1:8765
+venv/bin/python -m src tool ts --asset BTC --source hub --hub-url ws://127.0.0.1:8765
 ```
 
 Launch a tmux workspace directly:

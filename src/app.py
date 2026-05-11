@@ -1023,7 +1023,7 @@ class TapewormApp(App):
         if session_name:
             kill_tmux_session(session_name)
             return
-        self.quit()
+        self.exit()
 
 
 def main() -> None:
