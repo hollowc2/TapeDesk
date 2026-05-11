@@ -317,7 +317,7 @@ class MarketScreen(Screen):
         yield Label(f"{self.symbol} Market Depth", id="screen-title")
         with Horizontal(id="market-layout"):
             with Vertical(id="activity-column"):
-                yield Static(id="price-panel")
+                yield Static(id="stats-panel")
                 yield Static(id="tps-panel")
                 yield Static(id="trades-panel")
             with Vertical(id="book-column"):
@@ -332,14 +332,13 @@ class MarketScreen(Screen):
 
     def refresh_market(self) -> None:
         app = self.app
-        price = app.latest_prices.get(self.symbol, 0)
         book = app.books[self.symbol]
         tps = app.tps[self.symbol]
         trades = app.trades[self.symbol]
         stats = app.market_stats[self.symbol]
 
         if not self.compact:
-            self.query_one("#price-panel", Static).update(self.render_price(price, book))
+            self.query_one("#stats-panel", Static).update(self.render_stats(book, stats))
             self.query_one("#tps-panel", Static).update(self.render_tps(tps))
             self.query_one("#trades-panel", Static).update(self.render_trades(trades))
         self.query_one("#book-panel", Static).update(self.render_book(book, stats))
@@ -351,42 +350,61 @@ class MarketScreen(Screen):
 
     def apply_compact_layout(self) -> None:
         self.query_one("#activity-column", Vertical).display = not self.compact
-        self.query_one("#book-column", Vertical).styles.width = "100%" if self.compact else "57%"
+        self.query_one("#book-column", Vertical).styles.width = "100%" if self.compact else "70%"
 
-    def render_price(self, price: float, book: OrderBook) -> str:
+    def render_stats(self, book: OrderBook, stats: MarketStats) -> str:
         summary = book.summary()
-        price_line = format_price(price) if price else "Loading..."
-        spread = format_price_value(summary.spread) if summary.spread is not None else "--"
-        return f"[b]{self.symbol}[/b]\nLast: [bold cyan]{price_line}[/bold cyan]\nSpread: {spread}\nStatus: {book.status}"
+        vwap = format_price(stats.vwap) if stats.vwap is not None else "--"
+        daily_range = format_price_value(stats.daily_range) if stats.daily_range is not None else "--"
+        daily_high = format_price_value(stats.daily_high) if stats.daily_high is not None else "--"
+        daily_low = format_price_value(stats.daily_low) if stats.daily_low is not None else "--"
+        best_bid = format_price_value(summary.best_bid) if summary.best_bid is not None else "--"
+        best_ask = format_price_value(summary.best_ask) if summary.best_ask is not None else "--"
+        return "\n".join(
+            [
+                "[b]Stats[/b]",
+                f"VWAP {vwap}",
+                f"Range {daily_range}",
+                f"High {daily_high}",
+                f"Low {daily_low}",
+                f"Bid {best_bid}",
+                f"Ask {best_ask}",
+                f"Bid depth {format_quantity(summary.bid_depth)}",
+                f"Ask depth {format_quantity(summary.ask_depth)}",
+                f"Imbal {summary.imbalance:+.2%}",
+                f"Status {book.status}",
+            ]
+        )
 
     def render_tps(self, tps: TpsTracker) -> str:
         low = tps.lowest if tps.lowest is not None else 0
         return (
-            "[b]Transactions Per Second[/b]\n"
+            "[b]TPS[/b]\n"
             f"Current: [cyan]{tps.current}[/cyan]  Avg: {tps.average:.1f}\n"
             f"High: [green]{tps.highest}[/green]  Low: [red]{low}[/red]\n"
-            f"{tps.sparkline(36)}"
+            f"{tps.sparkline(18)}"
         )
 
     def render_trades(self, trades: TradeTracker) -> str:
-        lines = ["[b]Large Trades[/b]", "Recent"]
+        lines = ["[b]Trades[/b]", "Recent"]
         if not trades.recent:
             lines.append(f"Waiting for trades > {format_volume(trades.min_notional)}...")
-        for trade in trades.recent[:8]:
+        for trade in trades.recent[:4]:
             color = "green" if trade.side == "buy" else "red"
+            side = "B" if trade.side == "buy" else "S"
             lines.append(
-                f"{trade.time_label} [{color}]{trade.side.upper():<4}[/{color}] "
-                f"{format_quantity(trade.size):>8} @ {format_price(trade.price):>14} "
-                f"{format_price(trade.notional):>14}"
+                f"{trade.time_label} [{color}]{side}[/{color}] "
+                f"{format_price(trade.notional):>10}"
             )
 
         lines.append("")
         lines.append("Top")
-        for index, trade in enumerate(trades.top[:5], 1):
+        for index, trade in enumerate(trades.top[:3], 1):
             color = "green" if trade.side == "buy" else "red"
+            side = "B" if trade.side == "buy" else "S"
             lines.append(
-                f"{index:>2}. [{color}]{trade.side.upper():<4}[/{color}] "
-                f"{format_quantity(trade.size):>8} @ {format_price(trade.price):>14}"
+                f"{index:>2}. [{color}]{side}[/{color}] "
+                f"{format_price(trade.notional):>10}"
             )
         return "\n".join(lines)
 
@@ -404,7 +422,6 @@ class MarketScreen(Screen):
             if summary.spread is not None and summary.best_bid
             else "--"
         )
-        vwap = format_price(stats.vwap) if stats.vwap is not None else "--"
 
         prices = [price for price, _ in bids + asks]
         sizes = [size for _, size in bids + asks]
@@ -421,7 +438,7 @@ class MarketScreen(Screen):
             right_width += 1 + total_width
         row_width = left_width + 3 + right_width
         spread_text = f"Spread {spread}/{spread_pct}"
-        spread_line = f"{'VWAP ' + vwap:>{left_width}} | {spread_text:<{right_width}}"
+        spread_line = spread_text.center(row_width)
         spread_line = spread_line.ljust(row_width)
 
         rows = [
@@ -681,27 +698,27 @@ class TapewormApp(App):
     }
 
     #activity-column {
-        width: 43%;
-        min-width: 46;
+        width: 30%;
+        min-width: 24;
     }
 
     #book-column {
-        width: 57%;
+        width: 70%;
     }
 
-    #price-panel, #tps-panel, #trades-panel, #book-panel {
+    #stats-panel, #tps-panel, #trades-panel, #book-panel {
         border: solid #3a4050;
         padding: 1;
         margin: 0 1 1 0;
         background: #161a22;
     }
 
-    #price-panel {
-        height: 7;
+    #stats-panel {
+        height: 14;
     }
 
     #tps-panel {
-        height: 7;
+        height: 6;
     }
 
     #trades-panel {
