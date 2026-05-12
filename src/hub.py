@@ -36,7 +36,7 @@ class MarketDataHub:
         load_env_file()
         self.loop = asyncio.get_running_loop()
         async with websockets.serve(self.handle_client, self.host, self.port):
-            logger.info("tapeworm hub listening on ws://%s:%s", self.host, self.port)
+            logger.info("tapedesk hub listening on ws://%s:%s", self.host, self.port)
             await asyncio.Future()
 
     async def handle_client(self, websocket, _path: str | None = None) -> None:

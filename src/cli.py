@@ -4,7 +4,7 @@ import argparse
 import logging
 import sys
 
-from .app import TapewormApp, DEFAULT_HUB_URL, TRADE_AUDIO_FILTER_SIZES
+from .app import TapeDeskApp, DEFAULT_HUB_URL, TRADE_AUDIO_FILTER_SIZES
 from .hub import run_hub
 from .shared import normalize_asset
 from .tmux import launch_tmux
@@ -17,7 +17,7 @@ def configure_logging() -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
-        handlers=[logging.FileHandler("tapeworm.log")],
+        handlers=[logging.FileHandler("tapedesk.log")],
     )
 
 
@@ -26,7 +26,7 @@ def comma_list(value: str) -> list[str]:
 
 
 def prompt_orchestrator(args: argparse.Namespace) -> int:
-    print("tapeworm orchestrator")
+    print("tapedesk orchestrator")
     print("Enter assets as Coinbase symbols or tickers. Example: BTC,ETH,SOL")
     assets = comma_list(input("Assets: ").strip() or "BTC")
     print("Tools: screener, l2, ts")
@@ -48,7 +48,7 @@ def prompt_orchestrator(args: argparse.Namespace) -> int:
 def run_tool(args: argparse.Namespace) -> int:
     configure_logging()
     symbol = normalize_asset(args.asset)
-    TapewormApp(
+    TapeDeskApp(
         mode=args.tool_name,
         symbol=symbol,
         source=args.source,
@@ -63,12 +63,12 @@ def run_tool(args: argparse.Namespace) -> int:
 
 def run_legacy_app(_: argparse.Namespace | None = None) -> int:
     configure_logging()
-    TapewormApp().run()
+    TapeDeskApp().run()
     return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="tapeworm")
+    parser = argparse.ArgumentParser(prog="tapedesk")
     subparsers = parser.add_subparsers(dest="command")
 
     orchestrator = subparsers.add_parser("orchestrator", help="Pick assets/tools and launch a tmux workspace")
@@ -84,7 +84,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     tmux = subparsers.add_parser("tmux", help="tmux helpers")
     tmux_subparsers = tmux.add_subparsers(dest="tmux_command", required=True)
-    launch = tmux_subparsers.add_parser("launch", help="Launch a tapeworm tmux layout")
+    launch = tmux_subparsers.add_parser("launch", help="Launch a TapeDesk tmux layout")
     launch.add_argument("--assets", default="BTC", help="Comma-separated assets, e.g. BTC,ETH")
     launch.add_argument("--tools", default="screener,l2,ts", help="Comma-separated tools: screener,l2,ts")
     launch.add_argument("--session", help="tmux session name")
@@ -101,7 +101,7 @@ def build_parser() -> argparse.ArgumentParser:
         and 0
     )
 
-    tool = subparsers.add_parser("tool", help="Run one tapeworm tool")
+    tool = subparsers.add_parser("tool", help="Run one TapeDesk tool")
     tool_subparsers = tool.add_subparsers(dest="tool_name", required=True)
     for tool_name in ("screener", "l2", "ts"):
         tool_parser = tool_subparsers.add_parser(tool_name)

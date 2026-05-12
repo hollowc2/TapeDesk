@@ -1,8 +1,8 @@
-from src.app import TapewormApp
-from src.cli import build_parser
-from src.models import Trade
-from src.shared import normalize_asset
-from src.tmux import build_hub_command, build_tool_commands, build_tool_rows, current_tmux_session_name, launch_tmux
+from tapedesk.app import TapeDeskApp
+from tapedesk.cli import build_parser
+from tapedesk.models import Trade
+from tapedesk.shared import normalize_asset
+from tapedesk.tmux import build_hub_command, build_tool_commands, build_tool_rows, current_tmux_session_name, launch_tmux
 
 
 class FakeAudioPlayer:
@@ -64,7 +64,7 @@ def test_tmux_rows_group_l2_and_ts_per_asset():
 def test_hub_command_uses_host_and_port_from_url():
     command = build_hub_command("ws://127.0.0.1:8765")
 
-    assert command.endswith("-m src hub --host 127.0.0.1 --port 8765")
+    assert command.endswith("-m tapedesk hub --host 127.0.0.1 --port 8765")
 
 
 def test_current_tmux_session_name_returns_none_outside_tmux(monkeypatch):
@@ -74,7 +74,7 @@ def test_current_tmux_session_name_returns_none_outside_tmux(monkeypatch):
 
 
 def test_shutdown_workspace_quits_when_not_in_tmux(monkeypatch):
-    app = TapewormApp()
+    app = TapeDeskApp()
     exit_called = []
     monkeypatch.setattr("src.app.current_tmux_session_name", lambda: None)
     monkeypatch.setattr(app, "exit", lambda: exit_called.append(True))
@@ -85,7 +85,7 @@ def test_shutdown_workspace_quits_when_not_in_tmux(monkeypatch):
 
 
 def test_shutdown_workspace_kills_tmux_session(monkeypatch):
-    app = TapewormApp()
+    app = TapeDeskApp()
     killed = []
     monkeypatch.setattr("src.app.current_tmux_session_name", lambda: "demo")
     monkeypatch.setattr("src.app.kill_tmux_session", lambda session_name: killed.append(session_name))
@@ -97,7 +97,7 @@ def test_shutdown_workspace_kills_tmux_session(monkeypatch):
 
 
 def test_app_status_events_update_status_message_and_books():
-    app = TapewormApp(mode="l2")
+    app = TapeDeskApp(mode="l2")
     app.ensure_market_state("BTC-USD")
     app.events.put(("status", "Hub unavailable"))
 
@@ -110,7 +110,7 @@ def test_app_status_events_update_status_message_and_books():
 
 def test_time_sales_audio_disabled_does_not_play():
     player = FakeAudioPlayer()
-    app = TapewormApp(mode="ts", time_sales_audio_enabled=False, time_sales_audio_player=player)
+    app = TapeDeskApp(mode="ts", time_sales_audio_enabled=False, time_sales_audio_player=player)
 
     app.handle_market({"type": "match", "product_id": "BTC-USD", "price": "100", "size": "1", "side": "buy"})
 
@@ -119,7 +119,7 @@ def test_time_sales_audio_disabled_does_not_play():
 
 def test_time_sales_audio_plays_buy_and_sell_for_qualifying_trades():
     player = FakeAudioPlayer()
-    app = TapewormApp(
+    app = TapeDeskApp(
         mode="ts",
         time_sales_audio_enabled=True,
         time_sales_audio_min_size=0.01,
@@ -134,7 +134,7 @@ def test_time_sales_audio_plays_buy_and_sell_for_qualifying_trades():
 
 def test_time_sales_audio_ignores_trades_below_filter():
     player = FakeAudioPlayer()
-    app = TapewormApp(
+    app = TapeDeskApp(
         mode="ts",
         time_sales_audio_enabled=True,
         time_sales_audio_min_size=0.1,
@@ -148,7 +148,7 @@ def test_time_sales_audio_ignores_trades_below_filter():
 
 def test_l2_mode_does_not_play_time_sales_audio():
     player = FakeAudioPlayer()
-    app = TapewormApp(
+    app = TapeDeskApp(
         mode="l2",
         time_sales_audio_enabled=True,
         time_sales_audio_min_size=0.01,
@@ -161,7 +161,7 @@ def test_l2_mode_does_not_play_time_sales_audio():
 
 
 def test_time_sales_audio_filter_actions_clamp_to_steps():
-    app = TapewormApp(mode="ts")
+    app = TapeDeskApp(mode="ts")
     app.ensure_market_state("BTC-USD")
     app.trades["BTC-USD"].add(Trade("BTC-USD", 0.00000009, 80_000, "buy"))
     app.trades["BTC-USD"].add(Trade("BTC-USD", 0.0000001, 80_000, "buy"))

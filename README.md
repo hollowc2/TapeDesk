@@ -1,6 +1,6 @@
-# Tapeworm
+# TapeDesk
 
-Tapeworm is a terminal crypto market monitor built with Textual. It can run as one combined app or as separate tools for a screener, level 2 order book, and time-and-sales tape.
+TapeDesk is a terminal crypto market monitor built with Textual. It can run as one combined app or as separate tools for a screener, level 2 order book, and time-and-sales tape.
 
 ## Setup
 
@@ -24,13 +24,13 @@ COINBASE_PASSPHRASE=...
 Run the combined app:
 
 ```bash
-venv/bin/python -m src
+venv/bin/python -m tapedesk
 ```
 
 Start the interactive orchestrator:
 
 ```bash
-venv/bin/python -m src orchestrator
+venv/bin/python -m tapedesk orchestrator
 ```
 
 The orchestrator asks for assets and tools, starts a local market-data hub in a separate tmux window, and opens the tools layout in the visible window.
@@ -39,16 +39,16 @@ Press `q` in any tool window to shut down the entire tmux workspace, including t
 Run modules in isolation with direct Coinbase feeds:
 
 ```bash
-venv/bin/python -m src tool screener
-venv/bin/python -m src tool l2 --asset BTC
-venv/bin/python -m src tool ts --asset BTC
-venv/bin/python -m src hub
+venv/bin/python -m tapedesk tool screener
+venv/bin/python -m tapedesk tool l2 --asset BTC
+venv/bin/python -m tapedesk tool ts --asset BTC
+venv/bin/python -m tapedesk hub
 ```
 
 Run the standalone Time & Sales tape:
 
 ```bash
-venv/bin/python -m src tool ts --asset BTC
+venv/bin/python -m tapedesk tool ts --asset BTC
 ```
 
 The tape shows DAS-style `Price`, `Qty`, and `Time` columns. New prints appear at the top. Buy prints are green and sell prints are red.
@@ -56,30 +56,30 @@ The tape shows DAS-style `Price`, `Qty`, and `Time` columns. New prints appear a
 Filter the tape by USD notional value, base asset quantity, or both:
 
 ```bash
-venv/bin/python -m src tool ts --asset BTC --min-notional 10000
-venv/bin/python -m src tool ts --asset XRP --min-qty 1000
-venv/bin/python -m src tool ts --asset XRP --min-notional 25 --min-qty 100
+venv/bin/python -m tapedesk tool ts --asset BTC --min-notional 10000
+venv/bin/python -m tapedesk tool ts --asset XRP --min-qty 1000
+venv/bin/python -m tapedesk tool ts --asset XRP --min-notional 25 --min-qty 100
 ```
 
 Use an existing hub instead of opening a direct Coinbase feed:
 
 ```bash
-venv/bin/python -m src hub
-venv/bin/python -m src tool screener --source hub --hub-url ws://127.0.0.1:8765
-venv/bin/python -m src tool l2 --asset BTC --source hub --hub-url ws://127.0.0.1:8765
-venv/bin/python -m src tool ts --asset BTC --source hub --hub-url ws://127.0.0.1:8765
+venv/bin/python -m tapedesk hub
+venv/bin/python -m tapedesk tool screener --source hub --hub-url ws://127.0.0.1:8765
+venv/bin/python -m tapedesk tool l2 --asset BTC --source hub --hub-url ws://127.0.0.1:8765
+venv/bin/python -m tapedesk tool ts --asset BTC --source hub --hub-url ws://127.0.0.1:8765
 ```
 
 Launch a tmux workspace directly:
 
 ```bash
-venv/bin/python -m src tmux launch --assets BTC,ETH --tools screener,l2,ts
+venv/bin/python -m tapedesk tmux launch --assets BTC,ETH --tools screener,l2,ts
 ```
 
 Run only the local websocket hub:
 
 ```bash
-venv/bin/python -m src hub
+venv/bin/python -m tapedesk hub
 ```
 
 Tool commands default to `--source auto`: they try the local hub first, then fall back to direct Coinbase feeds if no hub is available.
@@ -99,7 +99,7 @@ Time-and-sales filters are optional. `--min-notional` filters by USD trade value
 Compile-check the package:
 
 ```bash
-venv/bin/python -m compileall src tests
+venv/bin/python -m compileall src tapedesk tests
 ```
 
 Run tests once `pytest` is installed:

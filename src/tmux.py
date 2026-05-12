@@ -19,17 +19,17 @@ def build_tool_commands(assets: list[str], tools: list[str], hub_url: str) -> li
 
     commands: list[str] = []
     if "screener" in tools:
-        commands.append(f"{shlex.quote(sys.executable)} -m src tool screener --source hub --hub-url {shlex.quote(hub_url)}")
+        commands.append(f"{shlex.quote(sys.executable)} -m tapedesk tool screener --source hub --hub-url {shlex.quote(hub_url)}")
 
     for asset in [normalize_asset(asset) for asset in assets]:
         if "l2" in tools:
             commands.append(
-                f"{shlex.quote(sys.executable)} -m src tool l2 --asset {shlex.quote(asset)} "
+                f"{shlex.quote(sys.executable)} -m tapedesk tool l2 --asset {shlex.quote(asset)} "
                 f"--source hub --hub-url {shlex.quote(hub_url)}"
             )
         if "ts" in tools:
             commands.append(
-                f"{shlex.quote(sys.executable)} -m src tool ts --asset {shlex.quote(asset)} "
+                f"{shlex.quote(sys.executable)} -m tapedesk tool ts --asset {shlex.quote(asset)} "
                 f"--source hub --hub-url {shlex.quote(hub_url)}"
             )
     return commands
@@ -45,12 +45,12 @@ def build_tool_rows(assets: list[str], tools: list[str], hub_url: str) -> list[l
         row: list[str] = []
         if "l2" in tools:
             row.append(
-                f"{shlex.quote(sys.executable)} -m src tool l2 --asset {shlex.quote(asset)} "
+                f"{shlex.quote(sys.executable)} -m tapedesk tool l2 --asset {shlex.quote(asset)} "
                 f"--source hub --hub-url {shlex.quote(hub_url)}"
             )
         if "ts" in tools:
             row.append(
-                f"{shlex.quote(sys.executable)} -m src tool ts --asset {shlex.quote(asset)} "
+                f"{shlex.quote(sys.executable)} -m tapedesk tool ts --asset {shlex.quote(asset)} "
                 f"--source hub --hub-url {shlex.quote(hub_url)}"
             )
         if row:
@@ -62,11 +62,11 @@ def build_hub_command(hub_url: str) -> str:
     parsed = urlparse(hub_url)
     host = parsed.hostname or "127.0.0.1"
     port = parsed.port or 8765
-    return f"{shlex.quote(sys.executable)} -m src hub --host {shlex.quote(host)} --port {port}"
+    return f"{shlex.quote(sys.executable)} -m tapedesk hub --host {shlex.quote(host)} --port {port}"
 
 
 def build_screener_command(hub_url: str) -> str:
-    return f"{shlex.quote(sys.executable)} -m src tool screener --source hub --hub-url {shlex.quote(hub_url)}"
+    return f"{shlex.quote(sys.executable)} -m tapedesk tool screener --source hub --hub-url {shlex.quote(hub_url)}"
 
 
 def pane_width(pane_id: str) -> int:
@@ -99,7 +99,7 @@ def launch_tmux(
     hub_url: str = "ws://127.0.0.1:8765",
     attach: bool = True,
 ) -> str:
-    session_name = session or f"tapeworm-{datetime.now().strftime('%H%M%S')}"
+    session_name = session or f"tapedesk-{datetime.now().strftime('%H%M%S')}"
     hub_command = build_hub_command(hub_url)
     rows = build_tool_rows(assets, tools, hub_url)
     screener_command = build_screener_command(hub_url) if "screener" in tools else None

@@ -74,7 +74,7 @@ def coinbase_auth_fields() -> dict[str, str]:
 
 
 def get_json(url: str, timeout: int = 20):
-    request = Request(url, headers={"User-Agent": "tapeworm/0.1"})
+    request = Request(url, headers={"User-Agent": "tapedesk/0.1"})
     with urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
 
