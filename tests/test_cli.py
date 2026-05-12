@@ -43,6 +43,15 @@ def test_cli_parses_time_sales_audio_options():
     assert args.audio_min_qty == 0.01
 
 
+def test_cli_parses_tmux_layout_option():
+    args = build_parser().parse_args(
+        ["tmux", "launch", "--layout", "ts-top-screener-bottom", "--assets", "BTC,ETH,SOL", "--tools", "ts,screener"]
+    )
+
+    assert args.tmux_command == "launch"
+    assert args.layout == "ts-top-screener-bottom"
+
+
 def test_tmux_commands_exclude_hub_and_include_selected_asset_tools():
     commands = build_tool_commands(["BTC", "ETH"], ["screener", "l2", "ts"], "ws://127.0.0.1:8765")
 
@@ -202,3 +211,34 @@ def test_launch_tmux_uses_seventy_thirty_splits_for_each_row():
     assert any(cmd[:5] == ["tmux", "split-window", "-d", "-v", "-P"] for cmd in calls)
     assert any(cmd[:6] == ["tmux", "display-message", "-p", "-t", "%1", "#{pane_width}"] for cmd in calls)
     assert any(cmd[:6] == ["tmux", "split-window", "-d", "-h", "-l", "30"] for cmd in calls)
+
+
+def test_launch_tmux_supports_ts_top_and_full_width_screener_layout():
+    calls: list[list[str]] = []
+    outputs = iter(["%1", "%2", "%3", "%4"])
+
+    def fake_check_output(cmd, text=False):
+        calls.append(cmd)
+        return next(outputs)
+
+    def fake_check_call(cmd):
+        calls.append(cmd)
+
+    from unittest.mock import patch
+
+    with patch("src.tmux.subprocess.check_output", side_effect=fake_check_output), patch(
+        "src.tmux.subprocess.check_call", side_effect=fake_check_call
+    ), patch("src.tmux.pane_width", return_value=90):
+        session = launch_tmux(
+            ["BTC", "ETH", "SOL"],
+            ["ts", "screener"],
+            session="demo",
+            layout="ts-top-screener-bottom",
+            attach=False,
+        )
+
+    assert session == "demo"
+    assert calls[0][:5] == ["tmux", "new-session", "-d", "-P", "-F"]
+    assert any(cmd[:6] == ["tmux", "split-window", "-d", "-v", "-l", "30%"] for cmd in calls)
+    assert sum(1 for cmd in calls if cmd[:2] == ["tmux", "resize-pane"]) == 3
+    assert any(cmd[:3] == ["tmux", "new-window", "-d"] and cmd[5:7] == ["-n", "hub"] for cmd in calls)

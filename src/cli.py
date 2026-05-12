@@ -89,6 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
     launch.add_argument("--tools", default="screener,l2,ts", help="Comma-separated tools: screener,l2,ts")
     launch.add_argument("--session", help="tmux session name")
     launch.add_argument("--hub-url", default=DEFAULT_HUB_URL)
+    launch.add_argument("--layout", choices=["rows", "ts-top-screener-bottom"], default="rows")
     launch.add_argument("--no-attach", action="store_true")
     launch.set_defaults(
         func=lambda args: launch_tmux(
@@ -97,6 +98,7 @@ def build_parser() -> argparse.ArgumentParser:
             session=args.session,
             hub_url=args.hub_url,
             attach=not args.no_attach,
+            layout=args.layout,
         )
         and 0
     )

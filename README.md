@@ -76,6 +76,22 @@ Launch a tmux workspace directly:
 venv/bin/python -m tapedesk tmux launch --assets BTC,ETH --tools screener,l2,ts
 ```
 
+For three TS panes across the top and a full-width screener on the bottom:
+
+```bash
+venv/bin/python -m tapedesk tmux launch --layout ts-top-screener-bottom --assets BTC,ETH,SOL --tools ts,screener --session tapedesk-demo
+tmux attach -t tapedesk-demo
+```
+
+Run that same setup anytime with:
+
+```bash
+venv/bin/python -m tapedesk tmux launch --layout ts-top-screener-bottom --assets BTC,ETH,SOL --tools ts,screener --session tapedesk-demo
+tmux attach -t tapedesk-demo
+```
+
+That layout starts the local hub inside the tmux session for you, so you do not need to run `venv/bin/python -m tapedesk hub` separately.
+
 Run only the local websocket hub:
 
 ```bash
