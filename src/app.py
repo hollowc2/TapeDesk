@@ -61,8 +61,6 @@ SCREENER_SORT_LABELS = {
     "change_5m": "5m % change",
     "change_15m": "15m % change",
     "change_1h": "1h % change",
-    "tick_count": "tick count",
-    "notional_velocity": "notional/sec",
     "spread": "spread %",
 }
 
@@ -81,9 +79,7 @@ class ScreenerScreen(Screen):
         Binding("5", "sort_change_5m", "5m%"),
         Binding("6", "sort_change_15m", "15m%"),
         Binding("7", "sort_change_1h", "1h%"),
-        Binding("8", "sort_tick_count", "Ticks"),
-        Binding("9", "sort_notional_velocity", "$/s"),
-        Binding("0", "sort_spread", "Spread"),
+        Binding("8", "sort_spread", "Spread"),
     ]
 
     def compose(self) -> ComposeResult:
@@ -99,11 +95,9 @@ class ScreenerScreen(Screen):
         table.add_column("15m", key="change_15m", width=8)
         table.add_column("1h", key="change_1h", width=8)
         table.add_column("Spread", key="spread", width=8)
-        table.add_column("$/s", key="velocity", width=8)
         table.add_column("24h Vol", key="volume_24h", width=10)
         table.add_column("RVol", key="rvol", width=6)
         table.add_column("Hourly", key="hourly", width=6)
-        table.add_column("Ticks", key="ticks", width=5)
         table.add_column("Alert", key="alert", width=10)
         table.add_column("Tick", key="direction", width=5)
         table.add_column("Age", key="age", width=5)
@@ -155,11 +149,9 @@ class ScreenerScreen(Screen):
                 self._percent_cell(row.percent_change(900)),
                 self._percent_cell(row.percent_change(3600)),
                 self._spread_text(row),
-                self._velocity_text(row.notional_velocity),
                 format_volume(row.volume_24h),
                 self._rvol_text(rvol_value, row),
                 self._rvol_text(hourly_rvol_value, row),
-                str(row.tick_count),
                 Text(alert, style=alert_style) if alert_style else alert,
                 direction_cell,
                 self._age_text(row.age(now)),
@@ -169,7 +161,7 @@ class ScreenerScreen(Screen):
         pins = ", ".join(sorted(app.screener_pins)) or "-"
         self.query_one("#screener-status", Static).update(
             f"Sort: {source} | pins: {pins} | prices: {len(app.latest_prices)} | "
-            f"RVol rows: {app.rvol_count} | {app.status_suffix()}1-9/0 sort | w pin | Enter open | q shutdown"
+            f"RVol rows: {app.rvol_count} | {app.status_suffix()}1-8 sort | w pin | Enter open | q shutdown"
         )
 
         if selected:
@@ -226,12 +218,6 @@ class ScreenerScreen(Screen):
     def action_sort_change_1h(self) -> None:
         self._set_sort("change_1h")
 
-    def action_sort_tick_count(self) -> None:
-        self._set_sort("tick_count")
-
-    def action_sort_notional_velocity(self) -> None:
-        self._set_sort("notional_velocity")
-
     def action_sort_spread(self) -> None:
         self._set_sort("spread")
 
@@ -268,11 +254,6 @@ class ScreenerScreen(Screen):
         if row.spread is None:
             return "--"
         return f"{row.spread_pct:.3f}%"
-
-    def _velocity_text(self, value: float) -> str:
-        if value <= 0:
-            return "--"
-        return format_volume(value).replace("$", "")
 
     def _rvol_text(self, value: float, row: ScreenerRow) -> str:
         if not row.rvol_snapshot_at:

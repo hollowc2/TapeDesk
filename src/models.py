@@ -339,10 +339,7 @@ class ScreenerRow:
     high_low_flash_direction: str = ""
     best_bid: float | None = None
     best_ask: float | None = None
-    notional_velocity: float = 0
     price_history: deque[tuple[float, float]] = field(default_factory=deque)
-    tick_times: deque[float] = field(default_factory=deque)
-    volume_samples: deque[tuple[float, float]] = field(default_factory=deque)
     rvol_volume_samples: deque[tuple[float, float]] = field(default_factory=deque)
     rvol_volume_deltas: deque[tuple[float, float]] = field(default_factory=deque)
 
@@ -363,10 +360,6 @@ class ScreenerRow:
         if self.spread is None or not self.best_bid:
             return 0
         return self.spread / self.best_bid * 100
-
-    @property
-    def tick_count(self) -> int:
-        return len(self.tick_times)
 
     def age(self, now: float | None = None) -> float:
         if not self.last_updated_at:
@@ -402,7 +395,6 @@ class ScreenerRow:
             self.previous_price = self.price
             self.last_price_changed_at = now
             self.price_history.append((now, price))
-            self.tick_times.append(now)
             if self.session_high and price > self.session_high:
                 self.high_low_flash_at = now
                 self.high_low_flash_direction = "high"
@@ -430,23 +422,15 @@ class ScreenerRow:
             self.best_ask = best_ask
 
     def _update_volume(self, volume_24h: float, now: float, rvol_volume_24h: float | None = None) -> None:
-        previous = self.volume_samples[-1] if self.volume_samples else None
         previous_rvol = self.rvol_volume_samples[-1] if self.rvol_volume_samples else None
         self.volume_24h = volume_24h
         rvol_volume_24h = volume_24h if rvol_volume_24h is None else rvol_volume_24h
-        self.volume_samples.append((now, volume_24h))
         self.rvol_volume_samples.append((now, rvol_volume_24h))
-        if previous is None:
-            return
-        previous_at, previous_volume = previous
-        elapsed = now - previous_at
-        volume_delta = volume_24h - previous_volume
-        if elapsed > 0 and volume_delta > 0:
-            self.notional_velocity = volume_delta / elapsed
-        if elapsed > 0 and previous_rvol is not None:
-            _previous_rvol_at, previous_rvol_volume = previous_rvol
+        if previous_rvol is not None:
+            previous_rvol_at, previous_rvol_volume = previous_rvol
+            elapsed = now - previous_rvol_at
             rvol_volume_delta = rvol_volume_24h - previous_rvol_volume
-            if rvol_volume_delta > 0:
+            if elapsed > 0 and rvol_volume_delta > 0:
                 self.rvol_volume_deltas.append((now, rvol_volume_delta))
 
     def current_hour_volume(self, now: float | None = None) -> float:
@@ -505,12 +489,7 @@ class ScreenerRow:
         price_cutoff = now - 3600
         while len(self.price_history) > 1 and self.price_history[1][0] < price_cutoff:
             self.price_history.popleft()
-        tick_cutoff = now - 60
-        while self.tick_times and self.tick_times[0] < tick_cutoff:
-            self.tick_times.popleft()
         volume_cutoff = now - 60
-        while len(self.volume_samples) > 2 and self.volume_samples[0][0] < volume_cutoff:
-            self.volume_samples.popleft()
         while len(self.rvol_volume_samples) > 2 and self.rvol_volume_samples[0][0] < volume_cutoff:
             self.rvol_volume_samples.popleft()
         rvol_cutoff = now - 90000
@@ -609,10 +588,6 @@ class ScreenerStore:
             return (abs(row.percent_change(900)), row.volume_24h, row.symbol)
         if sort_by == "change_1h":
             return (abs(row.percent_change(3600)), row.volume_24h, row.symbol)
-        if sort_by == "tick_count":
-            return (row.tick_count, row.notional_velocity, row.symbol)
-        if sort_by == "notional_velocity":
-            return (row.notional_velocity, row.tick_count, row.symbol)
         if sort_by == "spread":
             return (row.spread_pct, row.volume_24h, row.symbol)
         return (row.volume_24h, row.rvol, row.symbol)

@@ -208,7 +208,7 @@ def test_screener_row_rolls_rvol_forward_from_live_volume_deltas(monkeypatch):
     assert round(daily_rvol, 3) == 1.008
 
 
-def test_screener_row_uses_base_volume_for_live_rvol_and_notional_for_velocity(monkeypatch):
+def test_screener_row_uses_base_volume_for_live_rvol(monkeypatch):
     monkeypatch.setattr(models.time, "monotonic", lambda: 1000.0)
     store = ScreenerStore()
     store.update_rvol(
@@ -234,7 +234,6 @@ def test_screener_row_uses_base_volume_for_live_rvol_and_notional_for_velocity(m
     rvol, hourly_rvol, daily_rvol = row.live_rvol_metrics(1060.0)
 
     assert row.volume_24h == 193_600_000
-    assert round(row.notional_velocity, 2) == 26666.67
     assert row.current_hour_volume(1060.0) == 120
     assert row.current_day_volume(1060.0) == 2420
     assert round(rvol, 3) == 1.344
@@ -242,22 +241,19 @@ def test_screener_row_uses_base_volume_for_live_rvol_and_notional_for_velocity(m
     assert round(daily_rvol, 3) == 1.008
 
 
-def test_screener_row_tracks_momentum_spread_velocity_and_high_low():
+def test_screener_row_tracks_momentum_spread_and_high_low():
     store = ScreenerStore()
     store.update_price("BTC-USD", 100, volume_24h=1_000, best_bid=99, best_ask=101, now=0)
     store.update_price("BTC-USD", 106, volume_24h=1_300, now=60)
 
     row = store.rows["BTC-USD"]
     assert row.percent_change(60) == 6
-    assert row.tick_count == 1
     assert round(row.spread_pct, 2) == 2.02
-    assert row.notional_velocity == 5
     assert row.high_low_flash_direction == "high"
 
     store.update_price("BTC-USD", 94, now=70)
 
     assert row.percent_change(60) == -6
-    assert row.tick_count == 2
     assert row.age(75) == 5
     assert row.high_low_flash_direction == "low"
 
