@@ -1,8 +1,6 @@
 # TapeDesk
 
-TapeDesk is a terminal crypto market monitor built with Textual. It can run as one combined app or as separate tools for a screener, level 2 order book, and time-and-sales tape.
-
-TapeDesk is the replacement for BTCBeeper.
+TapeDesk is a terminal crypto market monitor built with Textual. It can run as one combined app or as separate tools for a screener, level 2 order book, and time-and-sales tape. It is the replacement for BTCBeeper.
 
 ## Setup
 
@@ -35,8 +33,7 @@ Start the interactive orchestrator:
 venv/bin/python -m tapedesk orchestrator
 ```
 
-The orchestrator asks for assets and tools, starts a local market-data hub in a separate tmux window, and opens the tools layout in the visible window.
-Press `q` in any tool window to shut down the entire tmux workspace, including the hub and every open tool.
+The orchestrator asks for assets and tools, starts a local market-data hub in a separate tmux window, and opens the tools layout in the visible window. Press `q` in any tool window to shut down the entire tmux workspace, including the hub and every open tool.
 
 Run modules in isolation with direct Coinbase feeds:
 
@@ -85,13 +82,6 @@ venv/bin/python -m tapedesk tmux launch --layout ts-top-screener-bottom --assets
 tmux attach -t tapedesk-demo
 ```
 
-Run that same setup anytime with:
-
-```bash
-venv/bin/python -m tapedesk tmux launch --layout ts-top-screener-bottom --assets BTC,ETH,SOL --tools ts,screener --session tapedesk-demo
-tmux attach -t tapedesk-demo
-```
-
 That layout starts the local hub inside the tmux session for you, so you do not need to run `venv/bin/python -m tapedesk hub` separately.
 
 Run only the local websocket hub:
@@ -101,6 +91,8 @@ venv/bin/python -m tapedesk hub
 ```
 
 Tool commands default to `--source auto`: they try the local hub first, then fall back to direct Coinbase feeds if no hub is available.
+
+If you are migrating from BTCBeeper, the matching TapeDesk workflow is the `ts` tool and the tmux layout above gives you the old "multiple trade windows plus a market list" feel in one command.
 
 ## Tools
 
