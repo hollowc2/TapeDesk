@@ -85,7 +85,7 @@ class ScreenerScreen(Screen):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
-        yield Label("TapeDesk Screener", id="screen-title")
+        yield Label("Screener", id="screen-title")
         yield Static("Connecting to Coinbase feeds...", id="screener-status")
         table = DataTable(id="screener-table", cursor_type="row", zebra_stripes=True)
         table.add_column("Pin", key="pin", width=3)
@@ -582,7 +582,7 @@ class L2Screen(MarketScreen):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
-        yield Label(f"{self.symbol} Level 2", id="screen-title")
+        yield Label(f"{self.symbol} L2", id="screen-title")
         yield Static(id="book-panel")
         yield Footer()
 
@@ -673,6 +673,8 @@ class TimeSalesScreen(Screen):
 
 
 class TapeDeskApp(App):
+    TITLE = "TapeDesk"
+
     CSS = """
     Screen {
         background: #111318;
