@@ -620,9 +620,9 @@ class TimeSalesScreen(Screen):
         yield Label(f"{self.symbol} Time & Sales", id="screen-title")
         yield Static(id="time-sales-status")
         table = DataTable(id="time-sales-table", zebra_stripes=True)
-        table.add_column("Price", key="price", width=16)
-        table.add_column("Qty", key="qty", width=14)
-        table.add_column("Time", key="time", width=10)
+        table.add_column("Price", key="price", width=12)
+        table.add_column("Size", key="qty", width=10)
+        table.add_column("Time", key="time", width=8)
         yield table
         yield Footer()
 
@@ -693,7 +693,18 @@ class TapeDeskApp(App):
         margin: 1;
     }
 
+    #time-sales-table {
+        margin: 1 1 1 1;
+        padding: 0;
+    }
+
     #screener-table {
+        border: solid #3a4050;
+        background: #141821;
+        color: #eeeeee;
+    }
+
+    #time-sales-table {
         border: solid #3a4050;
         background: #141821;
         color: #eeeeee;
