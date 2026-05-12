@@ -2,6 +2,8 @@
 
 TapeDesk is a terminal crypto market monitor built with Textual. It can run as one combined app or as separate tools for a screener, level 2 order book, and time-and-sales tape.
 
+TapeDesk is the replacement for BTCBeeper.
+
 ## Setup
 
 Install dependencies in your virtual environment:
