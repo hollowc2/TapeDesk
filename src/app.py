@@ -88,7 +88,7 @@ class ScreenerScreen(Screen):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
-        yield Label("Tapeworm Screener", id="screen-title")
+        yield Label("TapeDesk Screener", id="screen-title")
         yield Static("Connecting to Coinbase feeds...", id="screener-status")
         table = DataTable(id="screener-table", cursor_type="row", zebra_stripes=True)
         table.add_column("Pin", key="pin", width=3)
@@ -690,7 +690,7 @@ class TimeSalesScreen(Screen):
         return
 
 
-class TapewormApp(App):
+class TapeDeskApp(App):
     CSS = """
     Screen {
         background: #111318;
@@ -956,13 +956,15 @@ class TapewormApp(App):
         except (KeyError, TypeError, ValueError):
             return
         try:
-            volume_24h = float(message["volume_24h"]) * price if message.get("volume_24h") is not None else None
+            base_volume_24h = float(message["volume_24h"]) if message.get("volume_24h") is not None else None
+            volume_24h = base_volume_24h * price if base_volume_24h is not None else None
         except (TypeError, ValueError):
+            base_volume_24h = None
             volume_24h = None
         best_bid = optional_float(message.get("best_bid"))
         best_ask = optional_float(message.get("best_ask"))
         self.latest_prices[symbol] = price
-        self.screener.update_price(symbol, price, volume_24h, best_bid, best_ask)
+        self.screener.update_price(symbol, price, volume_24h, best_bid, best_ask, rvol_volume_24h=base_volume_24h)
 
     def handle_market(self, message: object) -> None:
         if not isinstance(message, dict):
@@ -1140,9 +1142,12 @@ def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
-        handlers=[logging.FileHandler("tapeworm.log")],
+        handlers=[logging.FileHandler("tapedesk.log")],
     )
-    TapewormApp().run()
+    TapeDeskApp().run()
+
+
+TapewormApp = TapeDeskApp
 
 
 def parse_trade_time(value: object) -> datetime:

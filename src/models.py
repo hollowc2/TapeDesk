@@ -343,6 +343,7 @@ class ScreenerRow:
     price_history: deque[tuple[float, float]] = field(default_factory=deque)
     tick_times: deque[float] = field(default_factory=deque)
     volume_samples: deque[tuple[float, float]] = field(default_factory=deque)
+    rvol_volume_samples: deque[tuple[float, float]] = field(default_factory=deque)
     rvol_volume_deltas: deque[tuple[float, float]] = field(default_factory=deque)
 
     @property
@@ -387,7 +388,13 @@ class ScreenerRow:
             return 0
         return (self.price - baseline) / baseline * 100
 
-    def update_price(self, price: float, volume_24h: float | None = None, now: float | None = None) -> None:
+    def update_price(
+        self,
+        price: float,
+        volume_24h: float | None = None,
+        now: float | None = None,
+        rvol_volume_24h: float | None = None,
+    ) -> None:
         now = time.monotonic() if now is None else now
         self.last_updated_at = now
 
@@ -412,7 +419,7 @@ class ScreenerRow:
         self.session_low = min(self.session_low or price, price)
 
         if volume_24h is not None:
-            self._update_volume(volume_24h, now)
+            self._update_volume(volume_24h, now, rvol_volume_24h)
 
         self._prune(now)
 
@@ -422,10 +429,13 @@ class ScreenerRow:
         if best_ask is not None and best_ask > 0:
             self.best_ask = best_ask
 
-    def _update_volume(self, volume_24h: float, now: float) -> None:
+    def _update_volume(self, volume_24h: float, now: float, rvol_volume_24h: float | None = None) -> None:
         previous = self.volume_samples[-1] if self.volume_samples else None
+        previous_rvol = self.rvol_volume_samples[-1] if self.rvol_volume_samples else None
         self.volume_24h = volume_24h
+        rvol_volume_24h = volume_24h if rvol_volume_24h is None else rvol_volume_24h
         self.volume_samples.append((now, volume_24h))
+        self.rvol_volume_samples.append((now, rvol_volume_24h))
         if previous is None:
             return
         previous_at, previous_volume = previous
@@ -433,7 +443,11 @@ class ScreenerRow:
         volume_delta = volume_24h - previous_volume
         if elapsed > 0 and volume_delta > 0:
             self.notional_velocity = volume_delta / elapsed
-            self.rvol_volume_deltas.append((now, volume_delta))
+        if elapsed > 0 and previous_rvol is not None:
+            _previous_rvol_at, previous_rvol_volume = previous_rvol
+            rvol_volume_delta = rvol_volume_24h - previous_rvol_volume
+            if rvol_volume_delta > 0:
+                self.rvol_volume_deltas.append((now, rvol_volume_delta))
 
     def current_hour_volume(self, now: float | None = None) -> float:
         now = time.monotonic() if now is None else now
@@ -497,6 +511,8 @@ class ScreenerRow:
         volume_cutoff = now - 60
         while len(self.volume_samples) > 2 and self.volume_samples[0][0] < volume_cutoff:
             self.volume_samples.popleft()
+        while len(self.rvol_volume_samples) > 2 and self.rvol_volume_samples[0][0] < volume_cutoff:
+            self.rvol_volume_samples.popleft()
         rvol_cutoff = now - 90000
         while self.rvol_volume_deltas and self.rvol_volume_deltas[0][0] < rvol_cutoff:
             self.rvol_volume_deltas.popleft()
@@ -514,9 +530,10 @@ class ScreenerStore:
         best_bid: float | None = None,
         best_ask: float | None = None,
         now: float | None = None,
+        rvol_volume_24h: float | None = None,
     ) -> None:
         row = self.rows.setdefault(symbol, ScreenerRow(symbol=symbol))
-        row.update_price(price, volume_24h, now)
+        row.update_price(price, volume_24h, now, rvol_volume_24h)
         row.update_quote(best_bid, best_ask)
 
     def update_rvol(self, metrics: Iterable[dict]) -> None:

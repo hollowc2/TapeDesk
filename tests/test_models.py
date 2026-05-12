@@ -208,6 +208,40 @@ def test_screener_row_rolls_rvol_forward_from_live_volume_deltas(monkeypatch):
     assert round(daily_rvol, 3) == 1.008
 
 
+def test_screener_row_uses_base_volume_for_live_rvol_and_notional_for_velocity(monkeypatch):
+    monkeypatch.setattr(models.time, "monotonic", lambda: 1000.0)
+    store = ScreenerStore()
+    store.update_rvol(
+        [
+            {
+                "Symbol": "BTC-USD",
+                "RVol": 1.2,
+                "HourlyRVol": 1.0,
+                "DailyRVol": 1.0,
+                "HourChange": 2.0,
+                "AvgDailyVolume": 2400,
+                "CurrentHourVolume": 100,
+                "PreviousHourVolume": 50,
+                "CurrentDayVolume": 2400,
+            }
+        ]
+    )
+
+    store.update_price("BTC-USD", 80_000, volume_24h=192_000_000, now=1000.0, rvol_volume_24h=2400)
+    store.update_price("BTC-USD", 80_000, volume_24h=193_600_000, now=1060.0, rvol_volume_24h=2420)
+
+    row = store.rows["BTC-USD"]
+    rvol, hourly_rvol, daily_rvol = row.live_rvol_metrics(1060.0)
+
+    assert row.volume_24h == 193_600_000
+    assert round(row.notional_velocity, 2) == 26666.67
+    assert row.current_hour_volume(1060.0) == 120
+    assert row.current_day_volume(1060.0) == 2420
+    assert round(rvol, 3) == 1.344
+    assert round(hourly_rvol, 2) == 1.20
+    assert round(daily_rvol, 3) == 1.008
+
+
 def test_screener_row_tracks_momentum_spread_velocity_and_high_low():
     store = ScreenerStore()
     store.update_price("BTC-USD", 100, volume_24h=1_000, best_bid=99, best_ask=101, now=0)
