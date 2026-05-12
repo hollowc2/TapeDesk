@@ -37,6 +37,7 @@ from .models import (
     TpsTracker,
     Trade,
     TradeTracker,
+    format_book_quantity,
     format_price,
     format_price_value,
     format_percent,
@@ -418,8 +419,8 @@ class MarketScreen(Screen):
         sizes = [size for _, size in bids + asks]
         totals = bid_totals + ask_totals
         price_width = max(12, len("BID PRICE"), *(len(format_price_value(price)) for price in prices))
-        size_width = max(10, len("BID SIZE"), *(len(format_quantity(size)) for size in sizes))
-        total_width = max(10, len("TOTAL"), *(len(format_quantity(total)) for total in totals))
+        size_width = max(10, len("BID SIZE"), *(len(format_book_quantity(size)) for size in sizes))
+        total_width = max(10, len("TOTAL"), *(len(format_book_quantity(total)) for total in totals))
         bar_width = 8 if self.compact else 5
         show_totals = self.compact
         left_width = bar_width + 1 + price_width + 1 + size_width
@@ -509,8 +510,8 @@ class MarketScreen(Screen):
         is_flash = self._is_level_flash("bid", price)
         bar = self._depth_bar(size, max_size, bar_width, align="right")
         price_text = format_price_value(price)
-        size_text = format_quantity(size)
-        total_text = f" {format_quantity(total):>{total_width}}" if show_totals and total is not None else ""
+        size_text = format_book_quantity(size)
+        total_text = f" {format_book_quantity(total):>{total_width}}" if show_totals and total is not None else ""
         text = f"{bar} {price_text:>{price_width}} {size_text:>{size_width}}{total_text}"
         if is_flash:
             bar_text = f"[bold bright_green on dark_green]{bar}[/]"
@@ -535,8 +536,8 @@ class MarketScreen(Screen):
         is_flash = self._is_level_flash("ask", price)
         bar = self._depth_bar(size, max_size, bar_width, align="left")
         price_text = format_price_value(price)
-        size_text = format_quantity(size)
-        total_text = f" {format_quantity(total):>{total_width}}" if show_totals and total is not None else ""
+        size_text = format_book_quantity(size)
+        total_text = f" {format_book_quantity(total):>{total_width}}" if show_totals and total is not None else ""
         text = f"{price_text:>{price_width}} {size_text:>{size_width}}{total_text} {bar}"
         if is_flash:
             bar_text = f"[bold bright_red on dark_red]{bar}[/]"

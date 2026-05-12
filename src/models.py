@@ -59,6 +59,27 @@ def format_quantity(quantity: float) -> str:
     return f"{quantity:.8f}".rstrip("0").rstrip(".")
 
 
+def format_book_quantity(quantity: float) -> str:
+    quantity_abs = abs(quantity)
+    if quantity_abs == 0:
+        return "0"
+    if quantity_abs >= 1_000:
+        return format_quantity(quantity)
+    if quantity_abs >= 100:
+        return f"{quantity:,.0f}"
+    if quantity_abs >= 10:
+        return f"{quantity:,.1f}".rstrip("0").rstrip(".")
+    if quantity_abs >= 1:
+        return f"{quantity:,.2f}".rstrip("0").rstrip(".")
+    if quantity_abs >= 0.1:
+        return f"{quantity:.4f}".rstrip("0").rstrip(".")
+    if quantity_abs >= 0.01:
+        return f"{quantity:.5f}".rstrip("0").rstrip(".")
+    if quantity_abs >= 0.0001:
+        return f"{quantity:.6f}".rstrip("0").rstrip(".")
+    return "<0.0001" if quantity > 0 else ">-0.0001"
+
+
 @dataclass
 class Trade:
     symbol: str

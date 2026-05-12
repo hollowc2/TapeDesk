@@ -9,6 +9,7 @@ from src.models import (
     TpsTracker,
     Trade,
     TradeTracker,
+    format_book_quantity,
     format_price,
     format_price_value,
     format_quantity,
@@ -41,6 +42,16 @@ def test_format_quantity_compacts_asset_sizes():
     assert format_quantity(42) == "42.000"
     assert format_quantity(6_496) == "6.50K"
     assert format_quantity(2_252_775.7) == "2.25M"
+
+
+def test_format_book_quantity_keeps_l2_sizes_scannable():
+    assert format_book_quantity(0.00000001) == "<0.0001"
+    assert format_book_quantity(0.000123456) == "0.000123"
+    assert format_book_quantity(0.01234567) == "0.01235"
+    assert format_book_quantity(0.12345678) == "0.1235"
+    assert format_book_quantity(1.23456789) == "1.23"
+    assert format_book_quantity(42) == "42"
+    assert format_book_quantity(6_496) == "6.50K"
 
 
 def test_trade_tracker_filters_recent_and_top_large_trades():
