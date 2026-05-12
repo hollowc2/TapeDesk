@@ -10,7 +10,7 @@ import logging
 import os
 import time
 from datetime import datetime, timezone
-from typing import Callable
+from typing import Callable, Iterable
 from urllib.error import URLError
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
@@ -131,21 +131,37 @@ def fetch_daily_candle_range(symbol: str) -> dict[str, float] | None:
     return {"low": low, "high": high, "range": high - low}
 
 
-def fetch_rvol_data() -> list[dict]:
-    products = fetch_usd_products()[:RVOL_PRODUCT_LIMIT]
+def fetch_rvol_data(priority_symbols: Iterable[str] | None = None) -> list[dict]:
+    products = rvol_products(priority_symbols)
     workers = max(1, min(RVOL_WORKERS, len(products) or 1))
     with ThreadPoolExecutor(max_workers=workers) as executor:
-        rows = list(executor.map(fetch_rvol_row, products))
-    return [row for row in rows if row is not None]
+        return list(executor.map(fetch_rvol_row, products))
 
 
-def fetch_rvol_row(symbol: str) -> dict | None:
+def rvol_products(priority_symbols: Iterable[str] | None = None) -> list[str]:
+    products: list[str] = []
+    seen: set[str] = set()
+    for symbol in list(priority_symbols or ()) + fetch_usd_products():
+        if symbol in seen:
+            continue
+        seen.add(symbol)
+        products.append(symbol)
+        if len(products) >= RVOL_PRODUCT_LIMIT:
+            break
+    return products
+
+
+def rvol_status_row(symbol: str, status: str, reason: str) -> dict:
+    return {"Symbol": symbol, "RVolStatus": status, "RVolReason": reason}
+
+
+def fetch_rvol_row(symbol: str) -> dict:
     try:
         candles = get_json(f"{EXCHANGE_API}/products/{symbol}/candles?granularity=300")
         stats = get_json(f"{EXCHANGE_API}/products/{symbol}/stats")
     except (OSError, URLError, json.JSONDecodeError) as exc:
         logger.debug("Skipping RVol for %s: %s", symbol, exc)
-        return None
+        return rvol_status_row(symbol, "error", "request failed")
 
     try:
         current_hour_volume = sum(float(candle[5]) for candle in candles[:12])
@@ -159,7 +175,7 @@ def fetch_rvol_row(symbol: str) -> dict | None:
         if volume_30d <= 0 and historical_day_volume > 0:
             volume_30d = historical_day_volume * 30
         if volume_24h <= 0 or volume_30d <= 0:
-            return None
+            return rvol_status_row(symbol, "unavailable", "missing volume")
 
         avg_daily_volume = volume_30d / 30
         daily_rvol = volume_24h / avg_daily_volume
@@ -168,12 +184,14 @@ def fetch_rvol_row(symbol: str) -> dict | None:
         weighted_rvol = daily_rvol * 0.5 + hourly_rvol * 0.3 + hour_change * 0.2
     except (ValueError, TypeError, IndexError) as exc:
         logger.debug("Bad RVol payload for %s: %s", symbol, exc)
-        return None
+        return rvol_status_row(symbol, "error", "bad payload")
 
     if weighted_rvol <= 0:
-        return None
+        return rvol_status_row(symbol, "unavailable", "zero rvol")
     return {
         "Symbol": symbol,
+        "RVolStatus": "ok",
+        "RVolReason": "",
         "RVol": round(weighted_rvol, 2),
         "Volume24h": round(volume_24h * last_price, 2),
         "HourlyRVol": round(hourly_rvol, 2),

@@ -351,6 +351,9 @@ class ScreenerRow:
     rvol_bootstrap_hour_volume: float = 0
     rvol_bootstrap_previous_hour_volume: float = 0
     rvol_bootstrap_day_volume: float = 0
+    rvol_status: str = "pending"
+    rvol_reason: str = ""
+    rvol_status_at: float = 0
     previous_price: float | None = None
     last_price_changed_at: float = 0
     last_updated_at: float = 0
@@ -480,7 +483,7 @@ class ScreenerRow:
 
     def live_rvol_metrics(self, now: float | None = None) -> tuple[float, float, float]:
         now = time.monotonic() if now is None else now
-        if not self.rvol_snapshot_at or not self.rvol_avg_daily_volume:
+        if self.rvol_status != "ok" or not self.rvol_snapshot_at or not self.rvol_avg_daily_volume:
             return self.rvol, self.hourly_rvol, self.daily_rvol
 
         avg_daily_volume = self.rvol_avg_daily_volume
@@ -541,6 +544,12 @@ class ScreenerStore:
         for item in metrics:
             symbol = item["Symbol"]
             row = self.rows.setdefault(symbol, ScreenerRow(symbol=symbol))
+            status = str(item.get("RVolStatus") or ("ok" if "RVol" in item else "unavailable"))
+            row.rvol_status = status
+            row.rvol_reason = str(item.get("RVolReason") or "")
+            row.rvol_status_at = now
+            if status != "ok":
+                continue
             if "Volume24h" in item:
                 row.volume_24h = float(item.get("Volume24h", 0))
             row.rvol = float(item.get("RVol", 0))
@@ -598,9 +607,13 @@ class ScreenerStore:
     @staticmethod
     def _sort_key(row: ScreenerRow, sort_by: str) -> tuple[float, float, str]:
         if sort_by == "rvol":
-            return (row.rvol, row.volume_24h, row.symbol)
+            return (row.rvol if row.rvol_status == "ok" else 0, row.volume_24h, row.symbol)
         if sort_by == "hourly_rvol":
-            return (row.hourly_rvol, row.rvol, row.symbol)
+            return (
+                row.hourly_rvol if row.rvol_status == "ok" else 0,
+                row.rvol if row.rvol_status == "ok" else 0,
+                row.symbol,
+            )
         if sort_by == "change_1m":
             return (abs(row.percent_change(60)), row.volume_24h, row.symbol)
         if sort_by == "change_5m":
@@ -611,4 +624,4 @@ class ScreenerStore:
             return (abs(row.percent_change(3600)), row.volume_24h, row.symbol)
         if sort_by == "spread":
             return (row.spread_pct, row.volume_24h, row.symbol)
-        return (row.volume_24h, row.rvol, row.symbol)
+        return (row.volume_24h, row.rvol if row.rvol_status == "ok" else 0, row.symbol)

@@ -162,7 +162,8 @@ class ScreenerScreen(Screen):
         pins = ", ".join(sorted(app.screener_pins)) or "-"
         self.query_one("#screener-status", Static).update(
             f"Sort: {source} | pins: {pins} | prices: {len(app.latest_prices)} | "
-            f"RVol rows: {app.rvol_count} | {app.status_suffix()}1-8 sort | w pin | Enter open | q shutdown"
+            f"RVol ok: {app.rvol_count}/{app.rvol_requested_count} | "
+            f"{app.status_suffix()}1-8 sort | w pin | Enter open | q shutdown"
         )
 
         if selected:
@@ -257,8 +258,12 @@ class ScreenerScreen(Screen):
         return f"{row.spread_pct:.3f}%"
 
     def _rvol_text(self, value: float, row: ScreenerRow) -> str:
-        if not row.rvol_snapshot_at:
-            return "--"
+        if row.rvol_snapshot_at:
+            return f"{value:.2f}"
+        if row.rvol_status == "pending":
+            return "..."
+        if row.rvol_status in {"unavailable", "error"}:
+            return "n/a"
         return f"{value:.2f}"
 
     def _age_text(self, seconds: float) -> str:
@@ -272,11 +277,13 @@ class ScreenerScreen(Screen):
         if now - row.high_low_flash_at < SCREENER_HIGH_LOW_FLASH_SECONDS:
             return "NEW HIGH" if row.high_low_flash_direction == "high" else "NEW LOW"
         alerts = []
-        if row.rvol >= SCREENER_RVOL_ALERT:
+        if row.rvol_status in {"unavailable", "error"} and not row.rvol_snapshot_at:
+            alerts.append("NO RVOL")
+        if row.rvol_status == "ok" and row.rvol >= SCREENER_RVOL_ALERT:
             alerts.append("RVOL")
         if abs(row.percent_change(300)) >= SCREENER_MOVE_ALERT_PCT:
             alerts.append("MOVE")
-        if row.hourly_rvol >= SCREENER_VOLUME_SPIKE_ALERT:
+        if row.rvol_status == "ok" and row.hourly_rvol >= SCREENER_VOLUME_SPIKE_ALERT:
             alerts.append("VOL")
         return ",".join(alerts[:2])
 
@@ -799,6 +806,7 @@ class TapeDeskApp(App):
         self.market_feed_symbols: set[str] = set()
         self.daily_range_symbols: set[str] = set()
         self.rvol_count = 0
+        self.rvol_requested_count = 0
         self._started = False
         self._direct_feeds = False
         self._rvol_started = False
@@ -915,10 +923,31 @@ class TapeDeskApp(App):
             time.sleep(300)
 
     def refresh_rvol_now(self) -> None:
+        priority_symbols = self.rvol_priority_symbols()
+
         def worker() -> None:
-            self.events.put(("rvol", fetch_rvol_data()))
+            self.events.put(("rvol", fetch_rvol_data(priority_symbols)))
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def rvol_priority_symbols(self) -> list[str]:
+        symbols: list[str] = []
+        seen: set[str] = set()
+
+        def add(symbol: str) -> None:
+            if symbol and symbol not in seen:
+                seen.add(symbol)
+                symbols.append(symbol)
+
+        for symbol in sorted(self.screener_pins):
+            add(symbol)
+        for symbol in sorted(self.market_symbols):
+            add(symbol)
+        for row in self.screener.live_prices(limit=200, sort_by="volume_24h", pinned_symbols=self.screener_pins):
+            add(row.symbol)
+        for symbol in self.latest_prices:
+            add(symbol)
+        return symbols
 
     def drain_events(self) -> None:
         for _ in range(500):
@@ -931,8 +960,10 @@ class TapeDeskApp(App):
             elif event_type == "market":
                 self.handle_market(payload)
             elif event_type == "rvol":
-                self.rvol_count = len(payload) if isinstance(payload, list) else 0
-                self.screener.update_rvol(payload)
+                rows = payload if isinstance(payload, list) else []
+                self.rvol_requested_count = len(rows)
+                self.rvol_count = sum(1 for item in rows if isinstance(item, dict) and item.get("RVolStatus") == "ok")
+                self.screener.update_rvol(rows)
             elif event_type == "daily_range":
                 symbol, candle = payload
                 if isinstance(candle, dict):

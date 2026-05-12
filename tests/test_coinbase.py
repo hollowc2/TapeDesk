@@ -39,21 +39,42 @@ def test_fetch_rvol_data_uses_historical_candles_when_stats_are_missing(monkeypa
     assert rows[0]["HourChange"] == 1.0
     assert rows[0]["AvgDailyVolume"] == 240.0
     assert rows[0]["CurrentHourVolume"] == 120.0
+    assert rows[0]["RVolStatus"] == "ok"
 
 
-def test_fetch_rvol_data_limits_products_and_skips_bad_rows(monkeypatch):
+def test_fetch_rvol_data_prioritizes_requested_symbols_and_keeps_status_rows(monkeypatch):
     monkeypatch.setattr(coinbase, "RVOL_PRODUCT_LIMIT", 2)
     monkeypatch.setattr(coinbase, "RVOL_WORKERS", 1)
     monkeypatch.setattr(coinbase, "fetch_usd_products", lambda: ["BTC-USD", "ETH-USD", "SOL-USD"])
 
     def fake_fetch_rvol_row(symbol):
         if symbol == "ETH-USD":
-            return None
-        return {"Symbol": symbol}
+            return {"Symbol": symbol, "RVolStatus": "unavailable", "RVolReason": "missing volume"}
+        return {"Symbol": symbol, "RVolStatus": "ok"}
 
     monkeypatch.setattr(coinbase, "fetch_rvol_row", fake_fetch_rvol_row)
 
-    assert coinbase.fetch_rvol_data() == [{"Symbol": "BTC-USD"}]
+    assert coinbase.fetch_rvol_data(priority_symbols=["ETH-USD", "BTC-USD"]) == [
+        {"Symbol": "ETH-USD", "RVolStatus": "unavailable", "RVolReason": "missing volume"},
+        {"Symbol": "BTC-USD", "RVolStatus": "ok"},
+    ]
+
+
+def test_fetch_rvol_row_reports_unavailable_volume(monkeypatch):
+    def fake_get_json(url):
+        if "/candles?granularity=300" in url:
+            return []
+        if url.endswith("/stats"):
+            return {"volume": "0", "volume_30day": "0", "last": "100"}
+        raise AssertionError(url)
+
+    monkeypatch.setattr(coinbase, "get_json", fake_get_json)
+
+    assert coinbase.fetch_rvol_row("BTC-USD") == {
+        "Symbol": "BTC-USD",
+        "RVolStatus": "unavailable",
+        "RVolReason": "missing volume",
+    }
 
 
 def test_env_int_uses_default_for_invalid_values(monkeypatch):

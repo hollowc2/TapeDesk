@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from src.app import ScreenerScreen
+from src.app import ScreenerScreen, TapeDeskApp
 import src.models as models
 from src.models import (
     MarketStats,
@@ -171,20 +171,42 @@ def test_screener_store_tracks_price_direction_and_sorts_by_selected_metric():
     assert [row.symbol for row in store.live_prices(limit=3, sort_by="rvol")] == ["ETH-USD", "BTC-USD", "DOGE-USD"]
 
 
-def test_screener_store_marks_rvol_snapshots_and_app_shows_placeholder_until_one_arrives():
+def test_screener_store_marks_rvol_snapshots_and_app_shows_status_until_one_arrives():
     store = ScreenerStore()
     store.update_price("BTC-USD", 100)
     row = store.rows["BTC-USD"]
     screen = ScreenerScreen()
 
-    assert screen._rvol_text(row.rvol, row) == "--"
+    assert screen._rvol_text(row.rvol, row) == "..."
+
+    store.update_rvol([{"Symbol": "BTC-USD", "RVolStatus": "unavailable", "RVolReason": "missing volume"}])
+    row = store.rows["BTC-USD"]
+
+    assert row.rvol_status == "unavailable"
+    assert row.rvol_reason == "missing volume"
+    assert screen._rvol_text(row.rvol, row) == "n/a"
 
     store.update_rvol([{"Symbol": "BTC-USD", "RVol": 2, "HourlyRVol": 3, "DailyRVol": 4, "HourChange": 5}])
     row = store.rows["BTC-USD"]
 
     assert row.rvol_snapshot_at > 0
+    assert row.rvol_status == "ok"
     assert screen._rvol_text(row.rvol, row) == "2.00"
     assert screen._rvol_text(row.hourly_rvol, row) == "3.00"
+
+
+def test_screener_store_preserves_last_rvol_when_refresh_fails():
+    store = ScreenerStore()
+    store.update_rvol([{"Symbol": "BTC-USD", "Volume24h": 1000, "RVol": 4, "HourlyRVol": 5, "DailyRVol": 2}])
+    row = store.rows["BTC-USD"]
+
+    store.update_rvol([{"Symbol": "BTC-USD", "RVolStatus": "error", "RVolReason": "request failed"}])
+
+    assert row.rvol == 4
+    assert row.hourly_rvol == 5
+    assert row.rvol_status == "error"
+    assert row.rvol_reason == "request failed"
+    assert ScreenerStore._sort_key(row, "rvol")[0] == 0
 
 
 def test_screener_row_rolls_rvol_forward_from_live_volume_deltas(monkeypatch):
@@ -289,3 +311,14 @@ def test_screener_store_keeps_pinned_symbols_visible_before_sorted_rows():
         "DOGE-USD",
         "ETH-USD",
     ]
+
+
+def test_app_prioritizes_pins_and_visible_rows_for_rvol_refresh():
+    app = TapeDeskApp()
+    app.screener_pins = {"DOGE-USD"}
+    app.market_symbols = {"SOL-USD"}
+    app.latest_prices = {"XRP-USD": 1.0}
+    app.screener.update_price("BTC-USD", 100, volume_24h=1000)
+    app.screener.update_price("DOGE-USD", 1, volume_24h=10)
+
+    assert app.rvol_priority_symbols()[:4] == ["DOGE-USD", "SOL-USD", "BTC-USD", "XRP-USD"]
