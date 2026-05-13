@@ -4,7 +4,7 @@ import argparse
 import logging
 import sys
 
-from .app import TapeDeskApp, DEFAULT_HUB_URL, TRADE_AUDIO_FILTER_SIZES
+from .app import DEFAULT_HUB_URL, TRADE_AUDIO_FILTER_SIZES, TapedeskApp
 from .hub import run_hub
 from .shared import normalize_asset
 from .tmux import launch_tmux
@@ -48,7 +48,7 @@ def prompt_orchestrator(args: argparse.Namespace) -> int:
 def run_tool(args: argparse.Namespace) -> int:
     configure_logging()
     symbol = normalize_asset(args.asset)
-    TapeDeskApp(
+    TapedeskApp(
         mode=args.tool_name,
         symbol=symbol,
         source=args.source,
@@ -63,7 +63,7 @@ def run_tool(args: argparse.Namespace) -> int:
 
 def run_legacy_app(_: argparse.Namespace | None = None) -> int:
     configure_logging()
-    TapeDeskApp().run()
+    TapedeskApp().run()
     return 0
 
 

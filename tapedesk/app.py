@@ -679,7 +679,7 @@ class TimeSalesScreen(Screen):
         return
 
 
-class TapeDeskApp(App):
+class TapedeskApp(App):
     TITLE = "tapedesk"
 
     CSS = """
@@ -1170,10 +1170,11 @@ def main() -> None:
         format="%(asctime)s - %(levelname)s - %(message)s",
         handlers=[logging.FileHandler("tapedesk.log")],
     )
-    TapeDeskApp().run()
+    TapedeskApp().run()
 
 
-TapewormApp = TapeDeskApp
+TapeDeskApp = TapedeskApp
+TapewormApp = TapedeskApp
 
 
 def parse_trade_time(value: object) -> datetime:
