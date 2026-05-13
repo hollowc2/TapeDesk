@@ -1,6 +1,6 @@
-# TapeDesk
+# tapedesk
 
-TapeDesk is a terminal crypto market monitor built with Textual. It can run as one combined app or as separate tools for a screener, level 2 order book, and time-and-sales tape. It is the replacement for BTCBeeper.
+tapedesk is a terminal crypto market monitor built with Textual. It can run as one combined app or as separate tools for a screener, level 2 order book, and time-and-sales tape. It is the replacement for BTCBeeper.
 
 ## Setup
 
@@ -92,7 +92,7 @@ venv/bin/python -m tapedesk hub
 
 Tool commands default to `--source auto`: they try the local hub first, then fall back to direct Coinbase feeds if no hub is available.
 
-If you are migrating from BTCBeeper, the matching TapeDesk workflow is the `ts` tool and the tmux layout above gives you the old "multiple trade windows plus a market list" feel in one command.
+If you are migrating from BTCBeeper, the matching tapedesk workflow is the `ts` tool and the tmux layout above gives you the old "multiple trade windows plus a market list" feel in one command.
 
 ## Tools
 
