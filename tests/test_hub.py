@@ -1,6 +1,6 @@
 import asyncio
 
-from src.hub import MarketDataHub
+from tapedesk.hub import MarketDataHub
 
 
 class FakeWebSocket:

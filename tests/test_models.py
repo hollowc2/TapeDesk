@@ -1,8 +1,8 @@
 from datetime import datetime, timedelta
 
-from src.app import ScreenerScreen, TapeDeskApp
-import src.models as models
-from src.models import (
+from tapedesk.app import ScreenerScreen, TapeDeskApp
+import tapedesk.models as models
+from tapedesk.models import (
     MarketStats,
     OrderBook,
     ScreenerStore,

@@ -109,7 +109,7 @@ Time-and-sales filters are optional. `--min-notional` filters by USD trade value
 Compile-check the package:
 
 ```bash
-venv/bin/python -m compileall src tapedesk tests
+venv/bin/python -m compileall tapedesk tests
 ```
 
 Run tests once `pytest` is installed:

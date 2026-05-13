@@ -85,7 +85,7 @@ def test_current_tmux_session_name_returns_none_outside_tmux(monkeypatch):
 def test_shutdown_workspace_quits_when_not_in_tmux(monkeypatch):
     app = TapeDeskApp()
     exit_called = []
-    monkeypatch.setattr("src.app.current_tmux_session_name", lambda: None)
+    monkeypatch.setattr("tapedesk.app.current_tmux_session_name", lambda: None)
     monkeypatch.setattr(app, "exit", lambda: exit_called.append(True))
 
     app.action_shutdown_workspace()
@@ -96,8 +96,8 @@ def test_shutdown_workspace_quits_when_not_in_tmux(monkeypatch):
 def test_shutdown_workspace_kills_tmux_session(monkeypatch):
     app = TapeDeskApp()
     killed = []
-    monkeypatch.setattr("src.app.current_tmux_session_name", lambda: "demo")
-    monkeypatch.setattr("src.app.kill_tmux_session", lambda session_name: killed.append(session_name))
+    monkeypatch.setattr("tapedesk.app.current_tmux_session_name", lambda: "demo")
+    monkeypatch.setattr("tapedesk.app.kill_tmux_session", lambda session_name: killed.append(session_name))
     monkeypatch.setenv("TMUX", "/tmp/tmux-1000/default,123,0")
 
     app.action_shutdown_workspace()
@@ -202,8 +202,8 @@ def test_launch_tmux_uses_seventy_thirty_splits_for_each_row():
 
     from unittest.mock import patch
 
-    with patch("src.tmux.subprocess.check_output", side_effect=fake_check_output), patch(
-        "src.tmux.subprocess.check_call", side_effect=fake_check_call
+    with patch("tapedesk.tmux.subprocess.check_output", side_effect=fake_check_output), patch(
+        "tapedesk.tmux.subprocess.check_call", side_effect=fake_check_call
     ):
         launch_tmux(["BTC", "ETH"], ["l2", "ts"], session="demo", attach=False)
 
@@ -226,9 +226,9 @@ def test_launch_tmux_supports_ts_top_and_full_width_screener_layout():
 
     from unittest.mock import patch
 
-    with patch("src.tmux.subprocess.check_output", side_effect=fake_check_output), patch(
-        "src.tmux.subprocess.check_call", side_effect=fake_check_call
-    ), patch("src.tmux.pane_width", return_value=90):
+    with patch("tapedesk.tmux.subprocess.check_output", side_effect=fake_check_output), patch(
+        "tapedesk.tmux.subprocess.check_call", side_effect=fake_check_call
+    ), patch("tapedesk.tmux.pane_width", return_value=90):
         session = launch_tmux(
             ["BTC", "ETH", "SOL"],
             ["ts", "screener"],

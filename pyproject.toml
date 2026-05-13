@@ -21,4 +21,4 @@ tapedesk = "tapedesk.cli:main"
 include-package-data = true
 
 [tool.setuptools.packages.find]
-include = ["src*", "tapedesk*"]
+include = ["tapedesk*"]

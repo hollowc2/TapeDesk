@@ -1,1 +1,5 @@
-from src.launcher import *  # noqa: F401,F403
+from .app import main
+
+
+if __name__ == "__main__":
+    main()
